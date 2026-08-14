@@ -17,6 +17,33 @@
 #include <fstream>
 #include <memory>
 #include <moveit_msgs/msg/move_it_error_codes.hpp>
+#include <optional>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include <moveit/planning_scene/planning_scene.hpp>
+#include <moveit/robot_trajectory/robot_trajectory.h>
+#include <moveit/task_constructor/solvers/cartesian_path.h>
+#include <moveit/task_constructor/solvers/joint_interpolation.h>
+#include <moveit/task_constructor/solvers/pipeline_planner.h>
+#include <moveit/task_constructor/stages/compute_ik.h>
+#include <moveit/task_constructor/stages/connect.h>
+#include <moveit/task_constructor/stages/current_state.h>
+#include <moveit/task_constructor/stages/fixed_state.h>
+#include <moveit/task_constructor/stages/generate_grasp_pose.h>
+#include <moveit/task_constructor/stages/modify_planning_scene.h>
+#include <moveit/task_constructor/stages/move_relative.h>
+#include <moveit/task_constructor/stages/move_to.h>
+#include <moveit/task_constructor/task.h>
+
+#include <Eigen/Geometry>
+#include <atomic>
+#include <boost/any.hpp>
+#include <chrono>
+#include <cmath>
+#include <geometry_msgs/msg/pose_stamped.hpp>
+
 #include <moveit_msgs/msg/planning_scene_components.hpp>
 #include <moveit_msgs/srv/get_motion_plan.hpp>
 #include <moveit_msgs/srv/get_planning_scene.hpp>
@@ -43,38 +70,376 @@ using PlanGrasps = moveit_planning_interfaces::srv::PlanGrasps;
 using GetPlanningScene = moveit_msgs::srv::GetPlanningScene;
 using PlanningSceneClient = rclcpp::Client<GetPlanningScene>;
 
+namespace {
+
+const mtc::SolutionBase *findSubSolution(const mtc::SolutionBase *s,
+                                         const mtc::Stage *target_stage) {
+  if (s == nullptr || target_stage == nullptr)
+    return nullptr;
+  if (s->creator() == target_stage) {
+    return s;
+  }
+  if (const auto *seq = dynamic_cast<const mtc::SolutionSequence *>(s)) {
+    for (const auto *sub : seq->solutions()) {
+      if (const auto *match = findSubSolution(sub, target_stage)) {
+        return match;
+      }
+    }
+  }
+  if (const auto *wrap = dynamic_cast<const mtc::WrappedSolution *>(s)) {
+    return findSubSolution(wrap->wrapped(), target_stage);
+  }
+  return nullptr;
+}
+
+} // namespace
+
+/**
+ * @brief Resolves an incoming target object ID against existing collision
+ * objects in the MoveIt planning scene.
+ *
+ * In Flowstate's Object World hierarchy, a WorldObject is a container of
+ * entities (such as "whole"). When moveit_scene_bridge exports collision
+ * objects and TF frames to ROS 2 and MoveIt, it formats the frame and collision
+ * object ID as:
+ *     "<object_name>/<entity_name>" (e.g. "building_block/whole")
+ *
+ * However, upstream Flowstate skills, high-level diagrams, and user-initiated
+ * service calls typically reference the root object name ("building_block") or
+ * may include a leading slash ("/building_block").
+ *
+ * This function resolves the target ID through the following priority order:
+ * 1. Exact match: checks if `target_id` directly matches an existing collision
+ * object ID.
+ * 2. Leading slash stripped: checks `clean_id` without a leading '/'.
+ * 3. Canonical Flowstate entity suffix: checks `<clean_id>/whole`.
+ * 4. Prefix match: checks for any collision object starting with `<clean_id>/`
+ * (e.g., `<clean_id>/<entity>`).
+ *
+ * @param existing_object_ids List of collision object IDs currently registered
+ * in the planning scene.
+ * @param target_id Target ID provided in the incoming request.
+ * @return Resolved collision object ID, or original target_id if no matching
+ * object was found.
+ */
+std::string
+resolve_target_object_id(const std::vector<std::string> &existing_object_ids,
+                         const std::string &target_id) {
+  if (target_id.empty()) {
+    return target_id;
+  }
+
+  // 1. Exact match
+  for (const auto &id : existing_object_ids) {
+    if (id == target_id) {
+      return id;
+    }
+  }
+
+  // 2. Strip leading slash
+  std::string clean_id = target_id;
+  if (!clean_id.empty() && clean_id.front() == '/') {
+    clean_id.erase(0, 1);
+  }
+  for (const auto &id : existing_object_ids) {
+    if (id == clean_id) {
+      return id;
+    }
+  }
+
+  // 3. Canonical Flowstate entity suffix (<clean_id>/whole)
+  const std::string canonical_whole = clean_id + "/whole";
+  for (const auto &id : existing_object_ids) {
+    if (id == canonical_whole) {
+      return id;
+    }
+  }
+
+  // 4. Prefix match against any <clean_id>/<entity>
+  const std::string prefix = clean_id + "/";
+  for (const auto &id : existing_object_ids) {
+    if (id.rfind(prefix, 0) == 0) {
+      return id;
+    }
+  }
+
+  return target_id;
+}
+
+/**
+ * @brief Queries MoveIt's planning scene service for the list of existing world
+ * collision object names.
+ *
+ * @param node Shared pointer to the ROS 2 node.
+ * @param timeout Maximum wait time for the service response.
+ * @return Vector of collision object IDs found in the planning scene.
+ */
+std::vector<std::string> get_planning_scene_object_ids(
+    const rclcpp::Node::SharedPtr &node,
+    std::chrono::milliseconds timeout = std::chrono::milliseconds(500)) {
+  std::vector<std::string> object_ids;
+  auto get_scene_client =
+      node->create_client<moveit_msgs::srv::GetPlanningScene>(
+          "/get_planning_scene");
+
+  if (!get_scene_client->service_is_ready()) {
+    if (!get_scene_client->wait_for_service(timeout)) {
+      return object_ids;
+    }
+  }
+
+  auto req = std::make_shared<moveit_msgs::srv::GetPlanningScene::Request>();
+  req->components.components =
+      moveit_msgs::msg::PlanningSceneComponents::WORLD_OBJECT_NAMES;
+
+  auto future = get_scene_client->async_send_request(req);
+  if (future.wait_for(timeout) == std::future_status::ready) {
+    try {
+      auto resp = future.get();
+      for (const auto &obj : resp->scene.world.collision_objects) {
+        object_ids.push_back(obj.id);
+      }
+    } catch (...) {
+    }
+  }
+  return object_ids;
+}
+
 /**
  * @brief Handles motion planning requests.
  */
 void handle_motion_plan_request(
-    const std::shared_ptr<std::atomic<bool>>& scene_ready,
-    const std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Request>& request,
-    std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Response>& response) {
+    const rclcpp::Node::SharedPtr &node,
+    const std::shared_ptr<std::atomic<bool>> &scene_ready,
+    const std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Request> request,
+    std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Response> response) {
   if (!scene_ready->load()) {
     RCLCPP_WARN(
-        rclcpp::get_logger("moveit_planning_service"),
+        node->get_logger(),
         "Rejecting motion planning request: collision scene is not ready yet.");
     response->motion_plan_response.error_code.val =
         moveit_msgs::msg::MoveItErrorCodes::FAILURE;
     return;
   }
 
-  RCLCPP_INFO(rclcpp::get_logger("moveit_planning_service"),
-              "Received motion planning request for group: '%s'",
-              request->motion_plan_request.group_name.c_str());
+  if (request->motion_plan_request.goal_constraints.empty() ||
+      request->motion_plan_request.goal_constraints[0]
+          .position_constraints.empty()) {
+    RCLCPP_ERROR(node->get_logger(),
+                 "Motion planning request is missing goal constraints.");
+    response->motion_plan_response.error_code.val =
+        moveit_msgs::msg::MoveItErrorCodes::INVALID_GOAL_CONSTRAINTS;
+    return;
+  }
 
-  // TODO: implement actual free-space or Cartesian motion planning, replace
-  // dummy code
-  response->motion_plan_response.group_name =
-      request->motion_plan_request.group_name;
-  response->motion_plan_response.planning_time =
-      0.05;  // 50ms dummy planning time
+  const auto &goal_constraint =
+      request->motion_plan_request.goal_constraints[0];
+  const std::string target_frame =
+      goal_constraint.position_constraints[0].header.frame_id;
+  const std::string tool_frame =
+      goal_constraint.position_constraints[0].link_name;
+  const std::string group_name = request->motion_plan_request.group_name;
+  const double timeout_sec =
+      request->motion_plan_request.allowed_planning_time > 0.0
+          ? request->motion_plan_request.allowed_planning_time
+          : 2.0;
+
+  RCLCPP_INFO(node->get_logger(),
+              "Received motion planning request for group: '%s', tool_frame: "
+              "'%s', target_frame: '%s'",
+              group_name.c_str(), tool_frame.c_str(), target_frame.c_str());
+
+  // Query planning scene from MoveIt
+  auto get_scene_client =
+      node->create_client<moveit_msgs::srv::GetPlanningScene>(
+          "/get_planning_scene");
+
+  auto scene_req =
+      std::make_shared<moveit_msgs::srv::GetPlanningScene::Request>();
+  scene_req->components.components =
+      moveit_msgs::msg::PlanningSceneComponents::SCENE_SETTINGS |
+      moveit_msgs::msg::PlanningSceneComponents::ROBOT_STATE |
+      moveit_msgs::msg::PlanningSceneComponents::WORLD_OBJECT_GEOMETRY |
+      moveit_msgs::msg::PlanningSceneComponents::TRANSFORMS;
+
+  auto timeout = std::chrono::milliseconds(100000);
+  if (!get_scene_client->wait_for_service(timeout)) {
+    RCLCPP_ERROR(node->get_logger(),
+                 "Service '/get_planning_scene' not ready.");
+    response->motion_plan_response.error_code.val =
+        moveit_msgs::msg::MoveItErrorCodes::FAILURE;
+    return;
+  }
+
+  auto future = get_scene_client->async_send_request(scene_req);
+  moveit_msgs::srv::GetPlanningScene::Response::SharedPtr scene_resp;
+  if (future.wait_for(timeout) == std::future_status::ready) {
+    try {
+      scene_resp = future.get();
+    } catch (const std::exception &e) {
+      RCLCPP_ERROR(node->get_logger(), "Failed to get planning scene: %s",
+                   e.what());
+      response->motion_plan_response.error_code.val =
+          moveit_msgs::msg::MoveItErrorCodes::FAILURE;
+      return;
+    }
+  } else {
+    RCLCPP_ERROR(node->get_logger(),
+                 "Timeout waiting for planning scene service.");
+    response->motion_plan_response.error_code.val =
+        moveit_msgs::msg::MoveItErrorCodes::FAILURE;
+    return;
+  }
+
+  mtc::Task task;
+  task.stages()->setName("motion_planning_task");
+  try {
+    task.loadRobotModel(node);
+  } catch (const std::exception &e) {
+    RCLCPP_ERROR(node->get_logger(),
+                 "Failed to load robot model in MTC Task: %s", e.what());
+    response->motion_plan_response.error_code.val =
+        moveit_msgs::msg::MoveItErrorCodes::FAILURE;
+    return;
+  }
+  const auto robot_model = task.getRobotModel();
+
+  const auto *arm_jmg = robot_model->getJointModelGroup(group_name);
+  if (arm_jmg == nullptr) {
+    RCLCPP_ERROR(node->get_logger(), "Arm joint model group '%s' not found.",
+                 group_name.c_str());
+    response->motion_plan_response.error_code.val =
+        moveit_msgs::msg::MoveItErrorCodes::INVALID_GROUP_NAME;
+    return;
+  }
+  const auto arm_active_joint_names = arm_jmg->getActiveJointModelNames();
+
+  auto planning_scene =
+      std::make_shared<planning_scene::PlanningScene>(robot_model);
+  //  planning_scene->useDetailedSceneDuration(true);
+  planning_scene->setPlanningSceneMsg(scene_resp->scene);
+
+  std::string resolved_target_frame = target_frame;
+  if (!planning_scene->knowsFrameTransform(resolved_target_frame)) {
+    std::vector<std::string> scene_object_ids;
+    for (const auto &obj : scene_resp->scene.world.collision_objects) {
+      scene_object_ids.push_back(obj.id);
+    }
+    resolved_target_frame =
+        resolve_target_object_id(scene_object_ids, target_frame);
+
+    if (!planning_scene->knowsFrameTransform(resolved_target_frame)) {
+      RCLCPP_ERROR(
+          node->get_logger(),
+          "Planning scene does not know target frame: '%s' (originally '%s')",
+          resolved_target_frame.c_str(), target_frame.c_str());
+      response->motion_plan_response.error_code.val =
+          moveit_msgs::msg::MoveItErrorCodes::FRAME_TRANSFORM_FAILURE;
+      return;
+    }
+    RCLCPP_INFO(node->get_logger(), "Resolved target frame '%s' to '%s'",
+                target_frame.c_str(), resolved_target_frame.c_str());
+  }
+
+  Eigen::Isometry3d world_t_target =
+      planning_scene->getFrameTransform(resolved_target_frame);
+
+  geometry_msgs::msg::PoseStamped target_pose_stamped;
+  target_pose_stamped.header.frame_id = robot_model->getModelFrame();
+  target_pose_stamped.header.stamp = node->now();
+  target_pose_stamped.pose = isometry_to_pose(world_t_target);
+
+  // Apply custom start joint state if provided
+  if (!request->motion_plan_request.start_state.joint_state.position.empty()) {
+    const auto &custom_positions =
+        request->motion_plan_request.start_state.joint_state.position;
+    if (custom_positions.size() != arm_active_joint_names.size()) {
+      RCLCPP_ERROR(node->get_logger(),
+                   "Custom start joint state size (%zu) does not match active "
+                   "joint group size (%zu).",
+                   custom_positions.size(), arm_active_joint_names.size());
+      response->motion_plan_response.error_code.val =
+          moveit_msgs::msg::MoveItErrorCodes::INVALID_ROBOT_STATE;
+      return;
+    }
+    moveit::core::RobotState &state = planning_scene->getCurrentStateNonConst();
+    state.setJointGroupPositions(arm_jmg, custom_positions);
+  }
+
+  auto start_stage = std::make_unique<mtc::stages::FixedState>("start_state");
+  start_stage->setState(planning_scene);
+  task.add(std::move(start_stage));
+
+  auto planner = std::make_shared<mtc::solvers::PipelinePlanner>(node);
+  auto move_to =
+      std::make_unique<mtc::stages::MoveTo>("move_to_target", planner);
+  move_to->setGroup(group_name);
+  move_to->setIKFrame(tool_frame);
+  move_to->setGoal(target_pose_stamped);
+  task.add(std::move(move_to));
+
+  auto start_planning_time = std::chrono::steady_clock::now();
+  try {
+    task.init();
+  } catch (const mtc::InitStageException &e) {
+    RCLCPP_ERROR_STREAM(node->get_logger(), "MTC initialization failed:\n"
+                                                << e);
+    response->motion_plan_response.error_code.val =
+        moveit_msgs::msg::MoveItErrorCodes::FAILURE;
+    return;
+  }
+
+  const auto planning_result = task.plan(1);
+  auto end_planning_time = std::chrono::steady_clock::now();
+  double planning_time_sec =
+      std::chrono::duration<double>(end_planning_time - start_planning_time)
+          .count();
+
+  if (planning_result != moveit::core::MoveItErrorCode::SUCCESS ||
+      task.solutions().empty()) {
+    RCLCPP_WARN(node->get_logger(),
+                "No feasible motion plan found to target_frame '%s'",
+                resolved_target_frame.c_str());
+    response->motion_plan_response.error_code.val =
+        moveit_msgs::msg::MoveItErrorCodes::PLANNING_FAILED;
+    return;
+  }
+
+  const auto *move_to_sol =
+      findSubSolution(task.solutions().front().get(), move_to.get());
+  if (move_to_sol == nullptr) {
+    RCLCPP_ERROR(node->get_logger(),
+                 "Failed to find MoveTo sub-solution in the task solution.");
+    response->motion_plan_response.error_code.val =
+        moveit_msgs::msg::MoveItErrorCodes::PLANNING_FAILED;
+    return;
+  }
+
+  const auto *sub_traj = dynamic_cast<const mtc::SubTrajectory *>(move_to_sol);
+  if (sub_traj == nullptr || !sub_traj->trajectory()) {
+    RCLCPP_ERROR(node->get_logger(),
+                 "MoveTo sub-solution is not a valid SubTrajectory.");
+    response->motion_plan_response.error_code.val =
+        moveit_msgs::msg::MoveItErrorCodes::PLANNING_FAILED;
+    return;
+  }
+
+  moveit_msgs::msg::RobotTrajectory trajectory_msg;
+  sub_traj->trajectory()->getRobotTrajectoryMsg(trajectory_msg);
+
+  task.introspection().publishSolution(*task.solutions().front());
+
+  response->motion_plan_response.trajectory = trajectory_msg;
+  response->motion_plan_response.group_name = group_name;
+  response->motion_plan_response.planning_time = planning_time_sec;
   response->motion_plan_response.error_code.val =
       moveit_msgs::msg::MoveItErrorCodes::SUCCESS;
 
-  RCLCPP_INFO(rclcpp::get_logger("moveit_planning_service"),
-              "Successfully generated dummy motion plan.");
+  RCLCPP_INFO(node->get_logger(),
+              "Successfully generated motion plan in %.3fs with %zu waypoints.",
+              planning_time_sec, trajectory_msg.joint_trajectory.points.size());
 }
+
 
 double get_double_parameter(const rclcpp::Node::SharedPtr& node,
                             const std::string& name, double default_value) {
@@ -216,7 +581,7 @@ std::thread orchestrate_scene_synchronization(
               }
             }
           }
-        } catch (const std::exception& e) {
+        } catch (const std::exception &e) {
           RCLCPP_ERROR(node->get_logger(),
                        "Exception querying MoveIt planning scene: %s. Retrying "
                        "in %.1fs...",
@@ -247,7 +612,7 @@ intrinsic_proto::config::RuntimeContext GetRuntimeContext() {
   return runtime_context;
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   rclcpp::init(argc, argv);
 
   auto runtime_context = GetRuntimeContext();

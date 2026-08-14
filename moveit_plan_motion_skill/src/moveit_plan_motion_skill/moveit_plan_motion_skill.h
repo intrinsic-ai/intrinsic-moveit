@@ -21,6 +21,8 @@
 #include "absl/status/statusor.h"
 #include "intrinsic/skills/cc/skill_interface.h"
 #include "intrinsic/skills/proto/skill_service.pb.h"
+#include "moveit_msgs/srv/get_motion_plan.hpp"
+#include "moveit_plan_motion_skill.pb.h"
 
 namespace com::generic::skills::motion {
 
@@ -32,6 +34,9 @@ class MotionPlanningSkill final : public intrinsic::skills::SkillInterface {
       const intrinsic::skills::ExecuteRequest& request,
       intrinsic::skills::ExecuteContext& context) override;
 };
+
+std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Request> CreateMotionPlanRequest(
+    const MotionPlanningParams& params);
 
 }  // namespace com::generic::skills::motion
 

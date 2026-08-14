@@ -28,6 +28,9 @@
 #include "intrinsic/util/status/status_macros.h"
 #include "moveit_msgs/msg/move_it_error_codes.hpp"
 #include "moveit_msgs/srv/get_motion_plan.hpp"
+#include "moveit_msgs/msg/constraints.hpp"
+#include "moveit_msgs/msg/position_constraint.hpp"
+#include "moveit_msgs/msg/orientation_constraint.hpp"
 #include "moveit_plan_motion_skill.pb.h"
 #include "rclcpp/rclcpp.hpp"
 
@@ -73,8 +76,40 @@ class MotionPlanningRosClient : public rclcpp::Node {
 };
 }  // namespace
 
-std::unique_ptr<intrinsic::skills::SkillInterface>
-MotionPlanningSkill::CreateSkill() {
+std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Request> CreateMotionPlanRequest(
+    const MotionPlanningParams& params) {
+  auto req = std::make_shared<moveit_msgs::srv::GetMotionPlan::Request>();
+  req->motion_plan_request.group_name = params.group_name();
+  req->motion_plan_request.allowed_planning_time = params.timeout_ms() / 1000.0;
+
+  // Encapsulate target_frame and tool_frame using standard goal constraints
+  moveit_msgs::msg::Constraints goal_constraint;
+
+  moveit_msgs::msg::PositionConstraint pos_constraint;
+  pos_constraint.header.frame_id = params.target_frame();
+  pos_constraint.link_name = params.tool_frame();
+  goal_constraint.position_constraints.push_back(pos_constraint);
+
+  moveit_msgs::msg::OrientationConstraint ori_constraint;
+  ori_constraint.header.frame_id = params.target_frame();
+  ori_constraint.link_name = params.tool_frame();
+  goal_constraint.orientation_constraints.push_back(ori_constraint);
+
+  req->motion_plan_request.goal_constraints.push_back(goal_constraint);
+
+  // Set optional custom start joint state
+  if (params.has_start_joint_state() && params.start_joint_state().joints_size() > 0) {
+    moveit_msgs::msg::RobotState start_state;
+    for (double joint : params.start_joint_state().joints()) {
+      start_state.joint_state.position.push_back(joint);
+    }
+    req->motion_plan_request.start_state = start_state;
+  }
+
+  return req;
+}
+
+std::unique_ptr<intrinsic::skills::SkillInterface> MotionPlanningSkill::CreateSkill() {
   return std::make_unique<MotionPlanningSkill>();
 }
 
@@ -94,11 +129,21 @@ MotionPlanningSkill::Execute(const intrinsic::skills::ExecuteRequest& request,
     return absl::InvalidArgumentError("timeout_ms must be greater than zero.");
   }
 
-  LOG(INFO) << "Calling motion planning service for group: " << group_name;
+  std::string target_frame = params.target_frame();
+  if (target_frame.empty()) {
+    return absl::InvalidArgumentError("target_frame must not be empty.");
+  }
+
+  std::string tool_frame = params.tool_frame();
+  if (tool_frame.empty()) {
+    return absl::InvalidArgumentError("tool_frame must not be empty.");
+  }
+
+  LOG(INFO) << "Calling motion planning service for group: " << group_name
+            << " with tool_frame: " << tool_frame << " and target_frame: " << target_frame;
 
   auto client = std::make_shared<MotionPlanningRosClient>();
-  auto req = std::make_shared<moveit_msgs::srv::GetMotionPlan::Request>();
-  req->motion_plan_request.group_name = group_name;
+  auto req = CreateMotionPlanRequest(params);
 
   const std::string service_name = "motion_planning/get_motion_plan";
   auto call_res = client->CallGetMotionPlan(service_name, req, timeout_ms);

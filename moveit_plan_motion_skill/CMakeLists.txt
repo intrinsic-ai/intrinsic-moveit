@@ -61,20 +61,20 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
-add_executable(moveit_plan_motion_skill_main
+add_library(moveit_plan_motion_skill
   src/moveit_plan_motion_skill/moveit_plan_motion_skill.cpp
-  ${CMAKE_CURRENT_BINARY_DIR}/moveit_plan_motion_skill_main.cc
 )
 
-target_include_directories(moveit_plan_motion_skill_main
-  PRIVATE
+target_include_directories(moveit_plan_motion_skill
+  PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/src/moveit_plan_motion_skill
   ${CMAKE_CURRENT_BINARY_DIR}
   ${CMAKE_CURRENT_BINARY_DIR}/src/moveit_plan_motion_skill
 )
 
-target_link_libraries(moveit_plan_motion_skill_main
+target_link_libraries(moveit_plan_motion_skill
+  PUBLIC
   intrinsic_sdk_cmake::intrinsic_sdk_cmake
   moveit_plan_motion_skill_protos
   rclcpp::rclcpp
@@ -83,11 +83,29 @@ target_link_libraries(moveit_plan_motion_skill_main
   ${moveit_msgs_TARGETS}
 )
 
-add_dependencies(moveit_plan_motion_skill_main moveit_plan_motion_skill_config)
+add_dependencies(moveit_plan_motion_skill moveit_plan_motion_skill_config)
+
+add_executable(moveit_plan_motion_skill_main
+  ${CMAKE_CURRENT_BINARY_DIR}/moveit_plan_motion_skill_main.cc
+)
+
+target_link_libraries(moveit_plan_motion_skill_main
+  moveit_plan_motion_skill
+)
 
 install(
-  TARGETS moveit_plan_motion_skill_main
+  TARGETS moveit_plan_motion_skill moveit_plan_motion_skill_main
   DESTINATION lib/${PROJECT_NAME}
 )
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(moveit_plan_motion_skill_test
+    test/moveit_plan_motion_skill_test.cpp
+  )
+  target_link_libraries(moveit_plan_motion_skill_test
+    moveit_plan_motion_skill
+  )
+endif()
 
 ament_package()
