@@ -1,0 +1,144 @@
+# Copyright 2026 Intrinsic Innovation LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+ARG ROS_DISTRO=jazzy
+
+# =========================================================
+# STAGE 1: BASE STAGE
+# =========================================================
+FROM ros:${ROS_DISTRO} AS base
+
+ENV SERVICE_WORKSPACE=/opt/service_workspace
+ENV ROS_HOME=/tmp
+ENV RMW_IMPLEMENTATION=rmw_zenoh_cpp
+ENV ZENOH_CONFIG_OVERRIDE='connect/endpoints=["tcp/zenoh-router.app-intrinsic-base.svc.cluster.local:7447"]'
+
+# =========================================================
+# STAGE 2: UNDERLAY STAGE (SDK & Common Dependencies)
+# =========================================================
+# Imports sources from .repos, installs rosdep up to intrinsic_sdk_cmake, builds SDK, and caches layer.
+FROM base AS underlay
+
+ARG ROS_DISTRO=jazzy
+
+WORKDIR /opt/service_workspace
+
+# Add distribution repos definition
+ADD ${ROS_DISTRO}.repos /opt/service_workspace/${ROS_DISTRO}.repos
+
+# Import upstream sources, install rosdep up to intrinsic_sdk_cmake, build, and prune caches in-place
+RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
+    && set -x \
+    && apt-get update \
+    && (rosdep init 2>/dev/null || true) \
+    && rosdep update \
+    && mkdir -p /opt/service_workspace/src \
+    && cd /opt/service_workspace \
+    && vcs import src < /opt/service_workspace/${ROS_DISTRO}.repos \
+    && if [ -d /opt/service_workspace/src/sdk-ros/intrinsic_sdk_bundle_library_py/test/functional_tests ]; then \
+        rm -rf /opt/service_workspace/src/sdk-ros/intrinsic_sdk_bundle_library_py/test/functional_tests; \
+    fi \
+    && rosdep install --from-paths $(colcon list --packages-up-to intrinsic_sdk_cmake -p) --ignore-src -r -y \
+    && apt-get install -y \
+        ros-${ROS_DISTRO}-rmw-zenoh-cpp \
+        python3-protobuf \
+        nlohmann-json3-dev \
+    && if [ -f /usr/lib/x86_64-linux-gnu/libxml2.so.16 ] && [ ! -f /usr/lib/x86_64-linux-gnu/libxml2.so.2 ]; then \
+        ln -s /usr/lib/x86_64-linux-gnu/libxml2.so.16 /usr/lib/x86_64-linux-gnu/libxml2.so.2; \
+    fi \
+    && cd /opt/service_workspace \
+    && colcon build \
+        --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+        --merge-install \
+        --packages-up-to intrinsic_sdk_cmake \
+    && rm -rf \
+        /opt/service_workspace/src \
+        /opt/service_workspace/build \
+        /opt/service_workspace/${ROS_DISTRO}.repos \
+        /root/.cache \
+        /var/lib/apt/lists/*
+
+# Backward compatibility symlink for SDK proto descriptors
+RUN mkdir -p /opt/intrinsic/intrinsic_sdk_cmake \
+    && ln -sf /opt/service_workspace/install /opt/intrinsic/intrinsic_sdk_cmake/install
+
+# =========================================================
+# STAGE 3: RUNTIME / SKILL STAGE
+# =========================================================
+# Builds only the target skill package on top of the cached underlay in seconds.
+FROM underlay AS runtime
+
+ARG ROS_DISTRO=jazzy
+ARG SKILL_PACKAGE=moveit_plan_motion_skill
+ARG SKILL_EXECUTABLE_NAME=moveit_plan_motion_skill_main
+ARG SKILL_CONFIG=share/moveit_plan_motion_skill/moveit_plan_motion_skill_config.pbbin
+
+ENV ROS_DISTRO=${ROS_DISTRO}
+ENV SKILL_PACKAGE=${SKILL_PACKAGE}
+ENV SKILL_EXECUTABLE_NAME=${SKILL_EXECUTABLE_NAME}
+ENV SKILL_CONFIG=${SKILL_CONFIG}
+ENV LD_LIBRARY_PATH=/opt/service_workspace/install/lib:/opt/service_workspace/install/lib/${SKILL_PACKAGE}:${LD_LIBRARY_PATH}
+
+WORKDIR /opt/service_workspace
+
+# Add local packages
+ADD moveit_planning_interfaces /opt/service_workspace/src/moveit_planning_interfaces
+ADD moveit_plan_motion_skill /opt/service_workspace/src/moveit_plan_motion_skill
+ADD moveit_plan_grasp_skill /opt/service_workspace/src/moveit_plan_grasp_skill
+
+# Install overlay dependencies, build target skill package, and prune local src/build in the same layer
+RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
+    && . /opt/service_workspace/install/setup.sh \
+    && cd /opt/service_workspace \
+    && apt-get update \
+    && (rosdep update 2>/dev/null || true) \
+    && rosdep install --from-paths src --ignore-src -r -y \
+    && colcon build \
+        --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+        --merge-install \
+        --packages-skip intrinsic_sdk_cmake grpc_vendor \
+        --packages-up-to ${SKILL_PACKAGE} \
+    && rm -rf \
+        /opt/service_workspace/src \
+        /opt/service_workspace/build \
+        /root/.cache \
+        /var/lib/apt/lists/*
+
+# Create runner script with full environment and shared library paths sourced
+RUN cat << EOF > /run_skill.sh
+#!/bin/bash
+set -e
+if [ -f "/opt/ros/${ROS_DISTRO}/setup.bash" ]; then
+    source "/opt/ros/${ROS_DISTRO}/setup.bash"
+fi
+if [ -f "/opt/service_workspace/install/setup.bash" ]; then
+    source "/opt/service_workspace/install/setup.bash"
+fi
+export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+export ROS_HOME=/tmp
+export ZENOH_CONFIG_OVERRIDE='connect/endpoints=["tcp/zenoh-router.app-intrinsic-base.svc.cluster.local:7447"]'
+export LD_LIBRARY_PATH="/opt/service_workspace/install/lib:/opt/service_workspace/install/lib/${SKILL_PACKAGE}:\$LD_LIBRARY_PATH"
+exec ros2 run "${SKILL_PACKAGE}" "${SKILL_EXECUTABLE_NAME}" "\$@"
+EOF
+RUN chmod +x /run_skill.sh
+
+# Link skill executable and config file into locations required by Flowstate
+RUN set -x \
+    && mkdir -p /skills \
+    && ln -sf /run_skill.sh /skills/skill_service \
+    && ln -sf /opt/service_workspace/install/${SKILL_CONFIG} /skills/skill_service_config.proto.bin
+
+CMD [ \
+    "/skills/skill_service", \
+    "--skill_service_config_filename=/skills/skill_service_config.proto.bin"]

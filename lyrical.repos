@@ -1,0 +1,34 @@
+repositories:
+  sdk-ros:
+    type: git
+    url: https://github.com/intrinsic-ai/sdk-ros.git
+    # v1.35.20260720
+    version: 77ca1a4d2f783da91de0ae75c10d2459d55be454
+  source_deps/moveit2:
+    type: git
+    url: https://github.com/moveit/moveit2.git
+    version: 4a5021bf2c410f0152172e17eac9704db7dce11b
+  source_deps/moveit_msgs:
+    type: git
+    url: https://github.com/moveit/moveit_msgs.git
+    version: 8daca8c56914e9cb8bd31d3332e71dd93dde5cc6
+  source_deps/moveit_resources:
+    type: git
+    url: https://github.com/moveit/moveit_resources.git
+    version: c55b102711fc0aebe80c6952d2ce97c38110abba
+  source_deps/moveit_task_constructor:
+    type: git
+    url: https://github.com/aaronchongth/moveit_task_constructor.git
+    version: 774afa08f30437f2cf81186c836f94c5682c7315
+  source_deps/ompl:
+    type: git
+    url: https://github.com/ompl/ompl.git
+    version: eb3baca772ab2c76f5943934b505751e031ff34c
+  source_deps/osqp_vendor:
+    type: git
+    url: https://github.com/moveit/osqp_vendor.git
+    version: 1df43ba1250bf93347a23a6a1cd481efd1cd2f68
+  source_deps/warehouse_ros_sqlite:
+    type: git
+    url: https://github.com/moveit/warehouse_ros_sqlite.git
+    version: 9afa97d5ef930d76e5c358ed046cfdded435be83

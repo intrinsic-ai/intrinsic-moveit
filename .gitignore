@@ -1,0 +1,11 @@
+images
+bin
+.env
+
+build/
+install/
+log/
+
+.vscode/
+__pycache__/
+*.pyc

@@ -1,0 +1,171 @@
+# Copyright 2026 Intrinsic Innovation LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Build up the service with multi-stage layering:
+#   - base (official ros:${ROS_DISTRO} base + environment defaults)
+#   - underlay (pulls upstream repos, builds dependencies, and purges build/src trees)
+#   - overlay (compiles local service packages and purges build/src trees)
+#   - runtime (sets up entrypoints and launch CMD directly from overlay)
+
+ARG ROS_DISTRO=jazzy
+
+# =========================================================
+# STAGE 1: BASE STAGE
+# =========================================================
+FROM ros:${ROS_DISTRO} AS base
+
+WORKDIR /opt/ros/underlay
+
+ENV ROS_HOME=/tmp
+ENV RMW_IMPLEMENTATION=rmw_zenoh_cpp
+
+# =========================================================
+# STAGE 2: UNDERLAY STAGE (Dependencies & SDK)
+# =========================================================
+FROM base AS underlay
+
+ARG ROS_DISTRO=jazzy
+ARG SERVICE_PACKAGE=moveit_flowstate_ros_bridge
+
+# 1. Add repo files before any source code to maximize caching
+ADD ${ROS_DISTRO}.repos /opt/ros/underlay/${ROS_DISTRO}.repos
+
+# 2. Fetch upstream source dependencies defined in .repos (e.g. sdk-ros, moveit2, ompl, mtc)
+RUN mkdir -p /opt/ros/underlay/src \
+    && cd /opt/ros/underlay \
+    && vcs import src < /opt/ros/underlay/${ROS_DISTRO}.repos
+
+# 3. Clean up unused test packages in sdk-ros to prevent rosdep from installing unnecessary dependencies
+RUN if [ -d /opt/ros/underlay/src/sdk-ros/intrinsic_sdk_bundle_library_py/test/functional_tests ]; then \
+        echo "Cleaning up unused test packages..." \
+        && cd /opt/ros/underlay/src/sdk-ros/intrinsic_sdk_bundle_library_py/test/functional_tests \
+        && find . -maxdepth 1 -type d ! -name "$SERVICE_PACKAGE" ! -name "." -exec rm -rf {} + 2>/dev/null || true; \
+    fi
+
+# 4. Install system and python dependencies, skipping the ones that are unnecessary to the packages
+# within this repository
+RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
+    && apt-get update \
+    && (rosdep init 2>/dev/null || true) \
+    && rosdep update \
+    && rosdep install --from-paths src --ignore-src -r -y \
+    && apt-get install -y ros-${ROS_DISTRO}-ament-cmake-vendor-package ros-${ROS_DISTRO}-rmw-zenoh-cpp python3-protobuf
+
+# 5. Compatibility symlink for Ubuntu 26.04 / Lyrical libxml2 soname transition
+RUN if [ -f /usr/lib/x86_64-linux-gnu/libxml2.so.16 ] && [ ! -f /usr/lib/x86_64-linux-gnu/libxml2.so.2 ]; then \
+        ln -s /usr/lib/x86_64-linux-gnu/libxml2.so.16 /usr/lib/x86_64-linux-gnu/libxml2.so.2; \
+    fi
+
+# 6. Build the underlay workspace with testing disabled, and purge source and build caches in the same layer
+RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
+    && colcon build \
+        --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+        --merge-install \
+        --packages-skip \
+            moveit_task_constructor_demo \
+            moveit_task_constructor_visualization \
+            moveit_task_constructor_capabilities \
+            moveit_setup_simulation \
+            moveit_ros_tests \
+            moveit_servo \
+            moveit_hybrid_planning \
+            flowstate_ros_gz_bridge \
+            ros_gz_bridge_vendor \
+            generic_action_skill \
+            snapshot_interfaces \
+    && rm -rf /opt/ros/underlay/src /opt/ros/underlay/build /root/.cache /var/lib/apt/lists/*
+
+# =========================================================
+# STAGE 3: OVERLAY STAGE (Local Workspace Packages)
+# =========================================================
+FROM underlay AS overlay
+
+ARG ROS_DISTRO=jazzy
+ARG ROS_PACKAGE_NAME_ARG
+ARG SERVICE_PACKAGE
+ARG SERVICE_NAME
+ARG DEPENDENCIES
+
+# Resolve target package name across differing build script conventions (prioritize ROS_PACKAGE_NAME_ARG from Makefile)
+ENV TARGET_PACKAGE=${ROS_PACKAGE_NAME_ARG:-${SERVICE_PACKAGE:-moveit_flowstate_ros_bridge}}
+
+RUN apt-get update \
+    && apt-get install -y ros-${ROS_DISTRO}-rmw-zenoh-cpp python3-protobuf ${DEPENDENCIES} \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/ros/overlay
+RUN mkdir -p /opt/ros/overlay/src
+
+# Add only local workspace packages to this layer so changes only rebuild the overlay
+ADD robot_hardware_description /opt/ros/overlay/src/robot_hardware_description
+ADD robot_hardware_moveit_config /opt/ros/overlay/src/robot_hardware_moveit_config
+ADD moveit_planning_service /opt/ros/overlay/src/moveit_planning_service
+ADD moveit_planning_interfaces /opt/ros/overlay/src/moveit_planning_interfaces
+ADD moveit_flowstate_ros_bridge /opt/ros/overlay/src/moveit_flowstate_ros_bridge
+
+# Install overlay dependencies, build target package, and purge source and build caches in the same layer
+RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
+    && . /opt/ros/underlay/install/setup.sh \
+    && cd /opt/ros/overlay \
+    && apt-get update \
+    && (rosdep update 2>/dev/null || true) \
+    && rosdep install --from-paths `colcon list --packages-up-to ${TARGET_PACKAGE} -p` --ignore-src -r -y \
+    && colcon build \
+        --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+        --merge-install \
+        --packages-skip intrinsic_sdk_cmake grpc_vendor \
+        --packages-up-to=${TARGET_PACKAGE} \
+    && rm -rf /opt/ros/overlay/src /opt/ros/overlay/build /root/.cache /var/lib/apt/lists/*
+
+# =========================================================
+# STAGE 4: RUNTIME STAGE (Final Service Environment)
+# =========================================================
+FROM overlay AS runtime
+
+ARG ROS_DISTRO=jazzy
+ARG ROS_PACKAGE_NAME_ARG
+ARG SERVICE_PACKAGE
+ARG SERVICE_NAME
+
+ENV ROS_PACKAGE_NAME=${ROS_PACKAGE_NAME_ARG:-${SERVICE_PACKAGE:-moveit_flowstate_ros_bridge}}
+ENV SERVICE_NAME=${SERVICE_NAME:-${ROS_PACKAGE_NAME}}
+ENV SERVICE_WORKSPACE=/opt/ros/overlay
+
+# Provide backward-compatibility paths for descriptor extraction and legacy scripts
+RUN mkdir -p /opt/service_workspace /opt/intrinsic/intrinsic_sdk_cmake \
+    && ln -sf /opt/ros/overlay/install /opt/service_workspace/install \
+    && ln -sf /opt/ros/underlay/install /opt/intrinsic/intrinsic_sdk_cmake/install
+
+ENV RMW_IMPLEMENTATION=rmw_zenoh_cpp
+ENV ROS_HOME=/tmp
+ENV ZENOH_CONFIG_OVERRIDE='connect/endpoints=["tcp/zenoh-router.app-intrinsic-base.svc.cluster.local:7447"]'
+
+# Set up entrypoint sourcing for underlay and overlay environments
+RUN sed --in-place \
+        --expression '$isource "/opt/ros/underlay/install/setup.bash"' \
+        /ros_entrypoint.sh \
+    && sed --in-place \
+        --expression '$isource "/opt/ros/overlay/install/setup.bash"' \
+        /ros_entrypoint.sh \
+    && sed --in-place \
+        --expression '$iexport RMW_IMPLEMENTATION=rmw_zenoh_cpp' \
+        /ros_entrypoint.sh \
+    && sed --in-place \
+        --expression '$iexport ROS_HOME=/tmp' \
+        /ros_entrypoint.sh \
+    && sed --in-place \
+        --expression '$iexport ZENOH_CONFIG_OVERRIDE='\'connect/endpoints=[\"tcp/zenoh-router.app-intrinsic-base.svc.cluster.local:7447\"]\''' \
+        /ros_entrypoint.sh
+
+CMD bash -c "ros2 launch ${ROS_PACKAGE_NAME} service.launch.py"

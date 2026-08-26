@@ -1,0 +1,40 @@
+// Copyright 2026 Intrinsic Innovation LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package intrinsic;
+
+// Configuration message for MoveIt planning service.
+message MoveItPlanningServiceConfig {
+  // Timeout in seconds when calling ROS 2 services (such as MoveIt planning scene
+  // or Flowstate ROS bridge collision objects).
+  // Default: 5.0
+  double ros_service_call_timeout_sec = 1;
+
+  // Time interval in seconds between retry attempts when populating collision
+  // objects from the bridge.
+  // Default: 2.0
+  double add_collision_retry_interval_sec = 2;
+
+  // Requires the MoveIt planning scene to contain one or more collision objects
+  // before transitioning the planning node to the ready state.
+  // Default: true
+  optional bool expect_collision_objects = 3;
+
+  // Whether to start mock ros2_control hardware for offline testing without
+  // the Flowstate ROS bridge.
+  // Default: false
+  optional bool use_mock_hardware = 4;
+}

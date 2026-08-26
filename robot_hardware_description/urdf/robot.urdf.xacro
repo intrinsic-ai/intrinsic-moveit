@@ -1,0 +1,84 @@
+<?xml version="1.0"?>
+
+<!--
+Copyright 2026 Intrinsic Innovation LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<robot
+  name="robot_hardware"
+  xmlns:xacro="http://wiki.ros.org/xacro">
+
+  <!-- Vendored Intrinsic UR5e description macro -->
+  <xacro:include
+    filename="$(find robot_hardware_description)/urdf/ur5e/ur5e_macro.xacro"/>
+
+  <!-- Local hardware components -->
+  <xacro:include
+    filename="$(find robot_hardware_description)/urdf/axia80_m20/axia80_m20_macro.xacro"/>
+
+  <xacro:include
+    filename="$(find robot_hardware_description)/urdf/camera_mount/cam_mount_macro.xacro"/>
+
+  <xacro:include
+    filename="$(find robot_hardware_description)/urdf/robotiq_hande/robotiq_hande_macro.xacro"/>
+
+  <!-- UR5e Arm -->
+  <xacro:ur5e_robot
+    name="ur5e"
+    tf_prefix=""
+    parent="">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </xacro:ur5e_robot>
+
+  <!-- External FT sensor -->
+  <xacro:axia80_m20 tf_prefix="axia_"/>
+
+  <!-- Camera mounting plate -->
+  <xacro:camera_mount tf_prefix="camera_mount_"/>
+
+  <!-- Robotiq Hand-E -->
+  <xacro:robotiq_hande
+    name="robotiq_hande"
+    tf_prefix="hande_"
+    grip_pos_min="0.0"
+    grip_pos_max="0.025"
+    grip_vel_max="0.05"
+    grip_effort_min="20"
+    grip_effort_max="130"
+    initial_pos="0.00655"
+    use_ros2_control="false"/>
+
+  <!-- UR5e flange -> camera/FT mounting plate -->
+  <joint name="flange_to_camera_mount" type="fixed">
+    <origin xyz="0 0 -.0265" rpy="0 0 0"/>
+    <parent link="flange"/>
+    <child link="camera_mount_cam_mount_link"/>
+  </joint>
+
+  <!-- Mounting plate -> Axia80-M20 -->
+  <joint name="camera_mount_to_axia80" type="fixed">
+    <origin xyz="0 0 0.0265" rpy="0 0 0"/>
+    <parent link="camera_mount_cam_mount_link"/>
+    <child link="axia_base_link"/>
+  </joint>
+
+  <!-- Axia80-M20 -> Hand-E -->
+  <joint name="axia80_to_hande" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="axia_tool_link"/>
+    <child link="hande_hande_base_link"/>
+  </joint>
+
+</robot>

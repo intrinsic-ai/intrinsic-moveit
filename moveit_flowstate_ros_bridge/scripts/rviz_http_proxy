@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+
+# Copyright 2026 Intrinsic Innovation LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import http.server
+import socketserver
+import sys
+import rclpy
+from rclpy.executors import ExternalShutdownException
+from flowstate_interfaces.srv import GetResource
+
+
+class RvizGetHandler(http.server.BaseHTTPRequestHandler):
+    def __init__(self, node, client, *args, **kwargs):
+        self.node = node
+        self.client = client
+        # do_GET() will be invoked by super().__init__()
+        super().__init__(*args, **kwargs)
+
+    def do_GET(self):
+        print(f'GET {self.path}')
+        if not self.path.startswith('/gltf/'):
+            self.send_response(404)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            self.wfile.write(b'Not found\r\n')
+            return
+        request = GetResource.Request()
+        request.path = self.path
+        future = self.client.call_async(request)
+        rclpy.spin_until_future_complete(self.node, future)
+        response = future.result()
+        print(f'response payload size: {len(response.body)}')
+        self.send_response(200)
+        self.send_header('Content-type', 'model/gltf-binary')
+        self.end_headers()
+        self.wfile.write(response.body)
+
+
+def main(argv):
+    try:
+        rclpy.init(args=argv)
+        node = rclpy.create_node('rviz_http_proxy')
+        node.declare_parameter('http_port', 8123)
+        client = node.create_client(GetResource, 'flowstate_get_resource')
+        while not client.wait_for_service(timeout_sec=1.0):
+            node.get_logger().info('waiting for flowstate_get_resource service...')
+        factory = lambda *args, **kwargs: RvizGetHandler(node, client, *args, **kwargs)
+        port = node.get_parameter('http_port').get_parameter_value().integer_value
+        with socketserver.TCPServer(('', port), factory) as httpd:
+            print(f'serving on port {port}')
+            httpd.serve_forever()
+    except (KeyboardInterrupt, ExternalShutdownException):
+        sys.exit(0)
+
+
+if __name__ == '__main__':
+    main(sys.argv)
