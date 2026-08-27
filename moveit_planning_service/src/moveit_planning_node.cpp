@@ -213,6 +213,9 @@ void handle_motion_plan_request(
     const std::shared_ptr<std::atomic<bool>> &scene_ready,
     const std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Request> request,
     std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Response> response) {
+  
+  
+  // Don't bother to do anything is the scene is not ready yet
   if (!scene_ready->load()) {
     RCLCPP_WARN(
         node->get_logger(),
@@ -222,6 +225,7 @@ void handle_motion_plan_request(
     return;
   }
 
+  // Check that we have a goal
   if (request->motion_plan_request.goal_constraints.empty() ||
       request->motion_plan_request.goal_constraints[0]
           .position_constraints.empty()) {
@@ -232,6 +236,8 @@ void handle_motion_plan_request(
     return;
   }
 
+  // The goal position is a frame and a link that should be aligned with that frame.
+  // target_frame will be the frame, tool_frame will be the link.
   const auto &goal_constraint =
       request->motion_plan_request.goal_constraints[0];
   const std::string target_frame =
@@ -249,7 +255,7 @@ void handle_motion_plan_request(
               "'%s', target_frame: '%s'",
               group_name.c_str(), tool_frame.c_str(), target_frame.c_str());
 
-  // Query planning scene from MoveIt
+  //------ Begin Query planning scene from MoveIt
   auto get_scene_client =
       node->create_client<moveit_msgs::srv::GetPlanningScene>(
           "/get_planning_scene");
@@ -290,7 +296,9 @@ void handle_motion_plan_request(
         moveit_msgs::msg::MoveItErrorCodes::FAILURE;
     return;
   }
+  // END ----------------------------------------------------------
 
+  // Let's start building our MTC
   mtc::Task task;
   task.stages()->setName("motion_planning_task");
   try {
@@ -314,11 +322,15 @@ void handle_motion_plan_request(
   }
   const auto arm_active_joint_names = arm_jmg->getActiveJointModelNames();
 
+  // Populate a plannig scene object from the planning scene in the query service response
   auto planning_scene =
       std::make_shared<planning_scene::PlanningScene>(robot_model);
   //  planning_scene->useDetailedSceneDuration(true);
   planning_scene->setPlanningSceneMsg(scene_resp->scene);
 
+  // Let's find our frames in the planning scene.
+  // But we should check if the target_frame is actually the name of the frame 
+  // in the planning scene, maybe we need to resolve it.
   std::string resolved_target_frame = target_frame;
   if (!planning_scene->knowsFrameTransform(resolved_target_frame)) {
     std::vector<std::string> scene_object_ids;
@@ -340,10 +352,10 @@ void handle_motion_plan_request(
     RCLCPP_INFO(node->get_logger(), "Resolved target frame '%s' to '%s'",
                 target_frame.c_str(), resolved_target_frame.c_str());
   }
-
+  // Know that we know the name, let's get the transform...
   Eigen::Isometry3d world_t_target =
       planning_scene->getFrameTransform(resolved_target_frame);
-
+  // Get a pose in the model frame for the target frame, an call it 'target_pose'
   geometry_msgs::msg::PoseStamped target_pose_stamped;
   target_pose_stamped.header.frame_id = robot_model->getModelFrame();
   target_pose_stamped.header.stamp = node->now();
@@ -362,14 +374,17 @@ void handle_motion_plan_request(
           moveit_msgs::msg::MoveItErrorCodes::INVALID_ROBOT_STATE;
       return;
     }
+
+    //Get the Group to the right joint state
     moveit::core::RobotState &state = planning_scene->getCurrentStateNonConst();
     state.setJointGroupPositions(arm_jmg, custom_positions);
   }
-
+  // Create a start state that looks like the current planning scene
   auto start_stage = std::make_unique<mtc::stages::FixedState>("start_state");
   start_stage->setState(planning_scene);
   task.add(std::move(start_stage));
 
+  // Let's add a Planner
   auto planner = std::make_shared<mtc::solvers::PipelinePlanner>(node);
   auto move_to =
       std::make_unique<mtc::stages::MoveTo>("move_to_target", planner);
@@ -378,6 +393,7 @@ void handle_motion_plan_request(
   move_to->setGoal(target_pose_stamped);
   task.add(std::move(move_to));
 
+   // Execute the planne
   auto start_planning_time = std::chrono::steady_clock::now();
   try {
     task.init();
@@ -389,6 +405,7 @@ void handle_motion_plan_request(
     return;
   }
 
+  //Check results
   const auto planning_result = task.plan(1);
   auto end_planning_time = std::chrono::steady_clock::now();
   double planning_time_sec =
@@ -405,6 +422,7 @@ void handle_motion_plan_request(
     return;
   }
 
+  // Get the subsolution for move_to
   const auto *move_to_sol =
       findSubSolution(task.solutions().front().get(), move_to.get());
   if (move_to_sol == nullptr) {
@@ -415,6 +433,7 @@ void handle_motion_plan_request(
     return;
   }
 
+  //Make sure it is a SubTrajectory
   const auto *sub_traj = dynamic_cast<const mtc::SubTrajectory *>(move_to_sol);
   if (sub_traj == nullptr || !sub_traj->trajectory()) {
     RCLCPP_ERROR(node->get_logger(),
@@ -424,6 +443,7 @@ void handle_motion_plan_request(
     return;
   }
 
+  //Conver the SubTrajctory to a RobotTrajectory
   moveit_msgs::msg::RobotTrajectory trajectory_msg;
   sub_traj->trajectory()->getRobotTrajectoryMsg(trajectory_msg);
 
