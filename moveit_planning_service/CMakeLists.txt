@@ -134,6 +134,11 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME}
 )
 
+install(PROGRAMS
+    scripts/benchmark_grasp_planning.py
+    DESTINATION lib/${PROJECT_NAME}
+  )
+
 # Install proto descriptor for sideloading
 install(FILES
   ${CMAKE_CURRENT_BINARY_DIR}/${SERVICE_NAME}_protos.desc
