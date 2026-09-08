@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Benchmark sequential grasp-planning service requests."""
+"""Benchmark sequential grasp planning for multiple candidate objects."""
 
 import argparse
 import statistics
@@ -31,19 +31,19 @@ from shape_msgs.msg import SolidPrimitive
 
 from moveit_planning_interfaces.srv import PlanGrasps
 
-DEFAULT_REQUEST_COUNTS = (1, 2, 4, 8)
+DEFAULT_CANDIDATE_COUNTS = (1, 2, 4, 8, 10)
 DEFAULT_REPETITIONS = 5
 
 
 @dataclass(frozen=True)
 class BenchmarkConfig:
-    request_counts: tuple[int, ...]
+    candidate_counts: tuple[int, ...]
     repetitions: int
     planning_timeout_sec: float
 
 
 @dataclass(frozen=True)
-class RequestMeasurement:
+class CandidateMeasurement:
     object_id: str
     duration_sec: float
     success: bool
@@ -53,13 +53,13 @@ class RequestMeasurement:
 
 @dataclass(frozen=True)
 class BatchMeasurement:
-    request_count: int
+    candidate_count: int
     duration_sec: float
-    request_measurements: tuple[RequestMeasurement, ...]
+    candidate_measurements: tuple[CandidateMeasurement, ...]
 
     @property
-    def successful_requests(self) -> int:
-        return sum(measurement.success for measurement in self.request_measurements)
+    def successful_candidates(self) -> int:
+        return sum(measurement.success for measurement in self.candidate_measurements)
 
 
 class GraspPlanningBenchmark(Node):
@@ -98,12 +98,16 @@ class GraspPlanningBenchmark(Node):
                 return False
         return True
 
-    def create_collision_box(self) -> CollisionObject:
-        """Create the collision box used by all benchmark requests."""
+    def create_collision_box(self, index: int) -> CollisionObject:
+        """Create a deterministic collision box for one candidate."""
+
+        columns = 4
+        row: int = index // columns
+        column: int = index % columns
 
         collision_object = CollisionObject()
         collision_object.header.frame_id = "world"
-        collision_object.id = "benchmark_box"
+        collision_object.id = f"benchmark_box_{index}"
         collision_object.operation = CollisionObject.ADD
 
         primitive = SolidPrimitive()
@@ -112,20 +116,24 @@ class GraspPlanningBenchmark(Node):
         collision_object.primitives.append(primitive)
 
         pose = Pose()
-        pose.position.x = 0.30
-        pose.position.y = 0.0
-        pose.position.z = 0.20
+        pose.position.x = 0.30 + (row * 0.12)
+        pose.position.y = -0.18 + (column * 0.12)
+        pose.position.z = 0.015
         pose.orientation.w = 1.0
         collision_object.primitive_poses.append(pose)
 
         return collision_object
 
-    def add_collision_box(self, timeout_sec: float) -> bool:
-        """Add the benchmark box to the planning scene."""
+    def add_collision_boxes(self, candidate_count: int, timeout_sec: float) -> bool:
+        """Add all benchmark candidate boxes to the planning scene."""
 
         request = ApplyPlanningScene.Request()
         request.scene.is_diff = True
-        request.scene.world.collision_objects.append(self.create_collision_box())
+
+        for index in range(candidate_count):
+            request.scene.world.collision_objects.append(
+                self.create_collision_box(index)
+            )
 
         response = self.call_service(
             self.apply_planning_scene_client, request, timeout_sec=timeout_sec
@@ -138,12 +146,16 @@ class GraspPlanningBenchmark(Node):
             self.get_logger().error("MoveIt rejected the planning scene update.")
             return False
 
-        self.get_logger().info("Added collision box to the planning scene.")
+        self.get_logger().info(
+            f"Added {candidate_count} collision boxes to the planning scene."
+        )
 
         return True
 
-    def verify_collision_box(self, timeout_sec: float = 10.0) -> bool:
-        """Verify that the benchmark box exists in the planning scene."""
+    def verify_collision_boxes(
+        self, candidate_count: int, timeout_sec: float = 10.0
+    ) -> bool:
+        """Verify that all benchmark candidate boxes exist in the planning scene."""
 
         request = GetPlanningScene.Request()
         request.components.components = PlanningSceneComponents.WORLD_OBJECT_GEOMETRY
@@ -153,16 +165,25 @@ class GraspPlanningBenchmark(Node):
         if response is None:
             return False
 
+        expected_ids: set[str] = {
+            f"benchmark_box_{index}" for index in range(candidate_count)
+        }
         actual_ids = {
             collision_object.id
             for collision_object in response.scene.world.collision_objects
         }
 
-        if "benchmark_box" not in actual_ids:
-            self.get_logger().error("benchmark_box not found in the planning scene.")
+        missing_ids = expected_ids - actual_ids
+        if missing_ids:
+            self.get_logger().error(
+                "Objects missing from the planning scene: "
+                + ", ".join(sorted(missing_ids))
+            )
             return False
 
-        self.get_logger().info("Verified benchmark_box is in the planning scene.")
+        self.get_logger().info(
+            f"Verified {candidate_count} candidate objects in the planning scene."
+        )
 
         return True
 
@@ -187,7 +208,7 @@ class GraspPlanningBenchmark(Node):
         benchmark_ids = [
             collision_object.id
             for collision_object in get_response.scene.world.collision_objects
-            if collision_object.id.startswith("benchmark_box")
+            if collision_object.id.startswith("benchmark_box_")
         ]
 
         if not benchmark_ids:
@@ -220,9 +241,9 @@ class GraspPlanningBenchmark(Node):
         return True
 
     def create_plan_grasp_request(
-        self, planning_timeout_sec: float
+        self, index: int, planning_timeout_sec: float
     ) -> PlanGrasps.Request:
-        """Create a grasp-planning request for the benchmark object."""
+        """Create a grasp planning request for one candidate object."""
 
         request = PlanGrasps.Request()
         request.group_name = "ur_manipulator"
@@ -239,17 +260,18 @@ class GraspPlanningBenchmark(Node):
         request.obj_dims_in_meters.z = 0.03
         request.obj_t_obj_center.orientation.w = 1.0
 
-        request.target.id = "benchmark_box"
+        request.target.id = f"benchmark_box_{index}"
 
         return request
 
-    def plan_request(
+    def plan_candidate(
         self,
+        index: int,
         planning_timeout_sec: float,
-    ) -> RequestMeasurement:
-        """Execute one grasp-planning request and measure its duration."""
+    ) -> CandidateMeasurement:
+        """Plan grasp for one candidate object and measure the duration."""
 
-        request = self.create_plan_grasp_request(planning_timeout_sec)
+        request = self.create_plan_grasp_request(index, planning_timeout_sec)
 
         start_time = time.perf_counter()
         response = self.call_service(
@@ -258,7 +280,7 @@ class GraspPlanningBenchmark(Node):
         duration_sec = time.perf_counter() - start_time
 
         if response is None:
-            return RequestMeasurement(
+            return CandidateMeasurement(
                 object_id=request.target.id,
                 duration_sec=duration_sec,
                 success=False,
@@ -270,7 +292,7 @@ class GraspPlanningBenchmark(Node):
             response.grasps
         )
 
-        return RequestMeasurement(
+        return CandidateMeasurement(
             object_id=request.target.id,
             duration_sec=duration_sec,
             success=success,
@@ -279,21 +301,20 @@ class GraspPlanningBenchmark(Node):
         )
 
     def run_sequential_batch(
-        self, request_count: int, planning_timeout_sec: float
+        self, candidate_count: int, planning_timeout_sec: float
     ) -> BatchMeasurement:
-        """Execute a batch of requests sequentially and measure the total time."""
+        """Plan a batch of candidate objects sequentially and measure the total time."""
 
-        request_measurements: list[RequestMeasurement] = []
+        candidate_measurements: list[CandidateMeasurement] = []
 
         batch_start_time: float = time.perf_counter()
 
-        for request_index in range(request_count):
-            measurement = self.plan_request(planning_timeout_sec)
-            request_measurements.append(measurement)
+        for index in range(candidate_count):
+            measurement = self.plan_candidate(index, planning_timeout_sec)
+            candidate_measurements.append(measurement)
 
             self.get_logger().info(
-                f"request={request_index + 1}/{request_count}, "
-                f"target={measurement.object_id}: "
+                f"{measurement.object_id}: "
                 f"{measurement.duration_sec:.3f} s, "
                 f"success={measurement.success}, "
                 f"grasps={measurement.grasp_count}, "
@@ -303,9 +324,9 @@ class GraspPlanningBenchmark(Node):
         batch_duration_sec = time.perf_counter() - batch_start_time
 
         return BatchMeasurement(
-            request_count=request_count,
+            candidate_count=candidate_count,
             duration_sec=batch_duration_sec,
-            request_measurements=tuple(request_measurements),
+            candidate_measurements=tuple(candidate_measurements),
         )
 
     def call_service(self, client: Client, request, timeout_sec: float):
@@ -333,41 +354,58 @@ class GraspPlanningBenchmark(Node):
     def run_benchmark(
         self, config: BenchmarkConfig
     ) -> dict[int, list[BatchMeasurement]]:
-        """Run the benchmark for all request counts and repetitions."""
+        """Run the grasp planning benchmark for all candidate counts and repetitions."""
 
         results: dict[int, list[BatchMeasurement]] = {
-            request_count: [] for request_count in config.request_counts
+            candidate_count: [] for candidate_count in config.candidate_counts
         }
 
-        self.get_logger().info(
-            "Running one warm-up request before collecting measurements."
-        )
-        warmup = self.plan_request(
-            planning_timeout_sec=config.planning_timeout_sec,
-        )
+        for candidate_count in config.candidate_counts:
+            self.get_logger().info(
+                f"Preparing a scene with {candidate_count} candidate objects."
+            )
 
-        self.get_logger().info(
-            f"Warm-up completed in {warmup.duration_sec:.3f} s "
-            f"with success={warmup.success}."
-        )
+            if not self.remove_existing_benchmark_boxes():
+                return {}
 
-        for request_count in config.request_counts:
+            if not self.add_collision_boxes(
+                candidate_count,
+                timeout_sec=20.0,
+            ):
+                return {}
+
+            if not self.verify_collision_boxes(candidate_count):
+                return {}
+
+            self.get_logger().info(
+                "Running one warm-up request before collecting measurements."
+            )
+            warmup: CandidateMeasurement = self.plan_candidate(
+                index=0,
+                planning_timeout_sec=config.planning_timeout_sec,
+            )
+
+            self.get_logger().info(
+                f"Warm-up completed in {warmup.duration_sec:.3f} s "
+                f"with success={warmup.success}."
+            )
+
             for repetition in range(1, config.repetitions + 1):
                 self.get_logger().info(
-                    f"Running request_count={request_count}, "
+                    f"Running candidate_count={candidate_count}, "
                     f"repetition={repetition}/{config.repetitions}."
                 )
 
-                measurement = self.run_sequential_batch(
-                    request_count=request_count,
+                measurement: BatchMeasurement = self.run_sequential_batch(
+                    candidate_count=candidate_count,
                     planning_timeout_sec=config.planning_timeout_sec,
                 )
-                results[request_count].append(measurement)
+                results[candidate_count].append(measurement)
 
                 self.get_logger().info(
                     f"Batch completed in {measurement.duration_sec:.3f} s: "
-                    f"{measurement.successful_requests}/"
-                    f"{request_count} requests successful."
+                    f"{measurement.successful_candidates}/"
+                    f"{candidate_count} candidates successful."
                 )
 
         return results
@@ -381,65 +419,65 @@ def print_summary(
     print()
     print("Sequential grasp-planning benchmark")
     print(
-        f"{'Requests':>10} "
+        f"{'Candidates':>10} "
         f"{'Runs':>6} "
         f"{'Success':>10} "
         f"{'Mean(s)':>10} "
         f"{'Median(s)':>10} "
         f"{'Min(s)':>10} "
         f"{'Max(s)':>10} "
-        f"{'Mean/request(s)':>18}"
+        f"{'Mean/candidate(s)':>18}"
     )
 
-    for request_count, measurements in results.items():
-        durations = [measurement.duration_sec for measurement in measurements]
-        successful_requests = sum(
-            measurement.successful_requests for measurement in measurements
+    for candidate_count, measurements in results.items():
+        durations: list[float] = [measurement.duration_sec for measurement in measurements]
+        successful_candidates: int = sum(
+            measurement.successful_candidates for measurement in measurements
         )
-        total_requests = request_count * len(measurements)
-        mean_duration = statistics.mean(durations)
+        total_candidates: int = candidate_count * len(measurements)
+        mean_duration: float = statistics.mean(durations)
 
         print(
-            f"{request_count:>10} "
+            f"{candidate_count:>10} "
             f"{len(measurements):>6} "
-            f"{successful_requests:>4}/{total_requests:<5} "
+            f"{successful_candidates:>4}/{total_candidates:<5} "
             f"{mean_duration:>10.3f} "
             f"{statistics.median(durations):>10.3f} "
             f"{min(durations):>10.3f} "
             f"{max(durations):>10.3f} "
-            f"{mean_duration / request_count:>18.3f}"
+            f"{mean_duration / candidate_count:>18.3f}"
         )
 
 
 def parse_arguments() -> BenchmarkConfig:
     parser = argparse.ArgumentParser(
         description=(
-            "Measure how grasp-planning time scales with sequential service requests."
+            "Measure sequential grasp-planning time as the number of candidate objects increases."
         )
     )
     parser.add_argument(
-        "--request-counts",
+        "--candidate-counts",
         type=int,
         nargs="+",
-        default=DEFAULT_REQUEST_COUNTS,
-        help="Request counts to benchmark. Default: 1 2 4 8",
+        default=DEFAULT_CANDIDATE_COUNTS,
+        help="Candidate counts to benchmark. Default: 1 2 4 8 10",
     )
     parser.add_argument(
         "--repetitions",
         type=int,
         default=DEFAULT_REPETITIONS,
-        help="Number of measured runs per request count. Default: 5",
+        help="Number of measured runs per candidate count. Default: 5",
     )
     parser.add_argument(
         "--planning-timeout-sec",
         type=float,
         default=10.0,
-        help="Planning timeout for each request. Default: 10.0 seconds",
+        help="Planning timeout for each candidate request Default: 10.0 seconds",
     )
     args = parser.parse_args()
 
-    if any(count <= 0 for count in args.request_counts):
-        parser.error("All request counts must be greater than zero.")
+    if any(count <= 0 for count in args.candidate_counts):
+        parser.error("All candidates count must be greater than zero.")
 
     if args.repetitions <= 0:
         parser.error("--repetitions must be greater than zero.")
@@ -448,7 +486,7 @@ def parse_arguments() -> BenchmarkConfig:
         parser.error("--planning-timeout-sec must be greater than zero.")
 
     return BenchmarkConfig(
-        request_counts=tuple(args.request_counts),
+        candidate_counts=tuple(args.candidate_counts),
         repetitions=args.repetitions,
         planning_timeout_sec=args.planning_timeout_sec,
     )
@@ -466,18 +504,10 @@ def main() -> int:
         if not benchmark.wait_for_services():
             return 1
 
-        if not benchmark.remove_existing_benchmark_boxes():
+        results: dict[int, list[BatchMeasurement]] = benchmark.run_benchmark(config)
+        if not results:
             return 1
 
-        if not benchmark.add_collision_box(
-            timeout_sec=20.0,
-        ):
-            return 1
-
-        if not benchmark.verify_collision_box():
-            return 1
-
-        results = benchmark.run_benchmark(config)
         print_summary(results)
 
         return 0
