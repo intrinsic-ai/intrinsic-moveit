@@ -23,7 +23,7 @@
 #include <vector>
 
 #include <moveit/planning_scene/planning_scene.hpp>
-#include <moveit/robot_trajectory/robot_trajectory.h>
+#include <moveit/robot_trajectory/robot_trajectory.hpp>
 #include <moveit/task_constructor/solvers/cartesian_path.h>
 #include <moveit/task_constructor/solvers/joint_interpolation.h>
 #include <moveit/task_constructor/solvers/pipeline_planner.h>
@@ -66,9 +66,15 @@
 #include "moveit_planning_service/publish_static_transforms.hpp"
 #include "rclcpp/experimental/executors/events_executor/events_executor.hpp"
 
+
+#include "moveit_planning_service/generate_box_grasp_poses.hpp"
+
+namespace mtc = moveit::task_constructor;
 using PlanGrasps = moveit_planning_interfaces::srv::PlanGrasps;
 using GetPlanningScene = moveit_msgs::srv::GetPlanningScene;
 using PlanningSceneClient = rclcpp::Client<GetPlanningScene>;
+using moveit_planning_service::isometry_to_pose;
+using moveit_planning_service::pose_to_isometry;
 
 namespace {
 
@@ -214,7 +220,8 @@ void handle_motion_plan_request(
     const std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Request> request,
     std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Response> response) {
   
-  
+
+            
   // Don't bother to do anything is the scene is not ready yet
   if (!scene_ready->load()) {
     RCLCPP_WARN(
@@ -891,14 +898,14 @@ int main(int argc, char **argv) {
 
   auto motion_service = node->create_service<moveit_msgs::srv::GetMotionPlan>(
       "motion_planning/get_motion_plan",
-      [scene_synchronizer, scene_ready](
+      [node, scene_synchronizer, scene_ready](
           const std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Request>
               request,
           std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Response> response) {
         if (scene_synchronizer) {
           scene_synchronizer->fetchAndSynchronizeCollisionObjects(std::nullopt);
         }
-        handle_motion_plan_request(scene_ready, request, response);
+        handle_motion_plan_request(node, scene_ready, request, response);
       },
       rclcpp::ServicesQoS(), planning_services_callback_group);
 
