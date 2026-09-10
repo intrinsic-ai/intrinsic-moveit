@@ -35,6 +35,7 @@ find_package(ament_index_cpp REQUIRED)
 find_package(ament_cmake REQUIRED)
 find_package(intrinsic_sdk_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(moveit_msgs REQUIRED)
 find_package(moveit_planning_interfaces REQUIRED)
@@ -76,6 +77,7 @@ target_include_directories(moveit_planning_node
 )
 target_link_libraries(moveit_planning_node
   rclcpp::rclcpp
+  rclcpp_action::rclcpp_action
   absl::flags
   absl::log
   absl::time
