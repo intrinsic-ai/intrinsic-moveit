@@ -37,36 +37,46 @@ intrinsic_proto::world::ObjectReference MakeCandidate(
 
 TEST(MoveItPlanGraspSkillTest, BasicParametersMappedCorrectly) {
   GraspPlanningParams params;
+  *params.add_candidate_objects() = MakeCandidate();
   params.set_group_name("manipulator");
   params.set_end_effector_group("gripper");
   params.set_timeout_ms(5000.0);
   params.set_retract_dist_m(0.12);
   params.set_gripper_motion_duration_sec(0.75);
 
-  auto req = CreatePlanGraspsRequest(params, MakeCandidate());
-  ASSERT_NE(req, nullptr);
-  EXPECT_EQ(req->group_name, "manipulator");
-  EXPECT_EQ(req->end_effector_group, "gripper");
-  EXPECT_DOUBLE_EQ(req->planning_timeout_sec, 5.0);
-  EXPECT_DOUBLE_EQ(req->retract_dist_m, 0.12);
-  EXPECT_DOUBLE_EQ(req->gripper_motion_duration_sec, 0.75);
+  const auto goal = CreatePlanGraspsGoal(params);
+
+  EXPECT_EQ(goal.group_name, "manipulator");
+  EXPECT_EQ(goal.end_effector_group, "gripper");
+  EXPECT_DOUBLE_EQ(goal.planning_timeout_sec, 5.0);
+  EXPECT_DOUBLE_EQ(goal.retract_dist_m, 0.12);
+  EXPECT_DOUBLE_EQ(goal.gripper_motion_duration_sec, 0.75);
+  EXPECT_EQ(goal.max_num_grasps, 1);
+  ASSERT_EQ(goal.candidates.size(), 1u);
+  EXPECT_EQ(goal.candidates[0].target.id, "test_object");
 }
 
 TEST(MoveItPlanGraspSkillTest, DefaultValuesAppliedCorrectly) {
   GraspPlanningParams params;
+  *params.add_candidate_objects() = MakeCandidate();
   // All optional fields left unset
 
-  auto req = CreatePlanGraspsRequest(params, MakeCandidate());
-  ASSERT_NE(req, nullptr);
-  EXPECT_EQ(req->group_name, "ur_manipulator");
-  EXPECT_EQ(req->end_effector_group, "hand");
-  EXPECT_DOUBLE_EQ(req->planning_timeout_sec, 10.0);
-  EXPECT_DOUBLE_EQ(req->retract_dist_m, 0.1);
-  EXPECT_DOUBLE_EQ(req->gripper_motion_duration_sec, 0.5);
+  const auto goal = CreatePlanGraspsGoal(params);
+
+  EXPECT_EQ(goal.group_name, "ur_manipulator");
+  EXPECT_EQ(goal.end_effector_group, "hand");
+  EXPECT_DOUBLE_EQ(goal.planning_timeout_sec, 10.0);
+  EXPECT_DOUBLE_EQ(goal.retract_dist_m, 0.1);
+  EXPECT_DOUBLE_EQ(goal.gripper_motion_duration_sec, 0.5);
+  EXPECT_EQ(goal.max_num_grasps, 1);
+  ASSERT_EQ(goal.candidates.size(), 1u);
+  EXPECT_EQ(goal.candidates[0].target.id, "test_object");
 }
 
 TEST(MoveItPlanGraspSkillTest, BoxGraspAnnotationsMappedCorrectly) {
   GraspPlanningParams params;
+  *params.add_candidate_objects() = MakeCandidate();
+
   auto* box = params.mutable_box_grasp_annotations();
   box->add_surfaces(0);
   box->add_surfaces(4);
@@ -81,34 +91,38 @@ TEST(MoveItPlanGraspSkillTest, BoxGraspAnnotationsMappedCorrectly) {
   box->mutable_obj_t_obj_center()->mutable_position()->set_z(0.03);
   box->mutable_obj_t_obj_center()->mutable_orientation()->set_w(1.0);
 
-  auto req = CreatePlanGraspsRequest(params, MakeCandidate());
-  ASSERT_NE(req, nullptr);
-  ASSERT_EQ(req->surfaces.size(), 2u);
-  EXPECT_EQ(req->surfaces[0], 0);
-  EXPECT_EQ(req->surfaces[1], 4);
-  EXPECT_EQ(req->num_rotations, 6);
+  const auto goal = CreatePlanGraspsGoal(params);
 
-  EXPECT_DOUBLE_EQ(req->obj_dims_in_meters.x, 0.1);
-  EXPECT_DOUBLE_EQ(req->obj_dims_in_meters.y, 0.2);
-  EXPECT_DOUBLE_EQ(req->obj_dims_in_meters.z, 0.3);
+  ASSERT_EQ(goal.surfaces.size(), 2u);
+  EXPECT_EQ(goal.surfaces[0], 0);
+  EXPECT_EQ(goal.surfaces[1], 4);
+  EXPECT_EQ(goal.num_rotations, 6);
 
-  EXPECT_DOUBLE_EQ(req->obj_t_obj_center.position.x, 0.01);
-  EXPECT_DOUBLE_EQ(req->obj_t_obj_center.position.y, 0.02);
-  EXPECT_DOUBLE_EQ(req->obj_t_obj_center.position.z, 0.03);
-  EXPECT_DOUBLE_EQ(req->obj_t_obj_center.orientation.w, 1.0);
+  ASSERT_EQ(goal.candidates.size(), 1u);
+  const auto& candidate = goal.candidates[0];
+
+  EXPECT_DOUBLE_EQ(candidate.obj_dims_in_meters.x, 0.1);
+  EXPECT_DOUBLE_EQ(candidate.obj_dims_in_meters.y, 0.2);
+  EXPECT_DOUBLE_EQ(candidate.obj_dims_in_meters.z, 0.3);
+
+  EXPECT_DOUBLE_EQ(candidate.obj_t_obj_center.position.x, 0.01);
+  EXPECT_DOUBLE_EQ(candidate.obj_t_obj_center.position.y, 0.02);
+  EXPECT_DOUBLE_EQ(candidate.obj_t_obj_center.position.z, 0.03);
+  EXPECT_DOUBLE_EQ(candidate.obj_t_obj_center.orientation.w, 1.0);
 }
 
 TEST(MoveItPlanGraspSkillTest, ToolFrameById) {
   GraspPlanningParams params;
+  *params.add_candidate_objects() = MakeCandidate();
   params.mutable_tool_frame()->set_id("tool0");
 
-  auto req = CreatePlanGraspsRequest(params, MakeCandidate());
-  ASSERT_NE(req, nullptr);
-  EXPECT_EQ(req->tool_frame, "tool0");
+  const auto goal = CreatePlanGraspsGoal(params);
+  EXPECT_EQ(goal.tool_frame, "tool0");
 }
 
 TEST(MoveItPlanGraspSkillTest, ToolFrameByFrameName) {
   GraspPlanningParams params;
+  *params.add_candidate_objects() = MakeCandidate();
   params.mutable_tool_frame()
       ->mutable_by_name()
       ->mutable_frame()
@@ -118,63 +132,63 @@ TEST(MoveItPlanGraspSkillTest, ToolFrameByFrameName) {
       ->mutable_frame()
       ->set_object_name("gripper");
 
-  auto req = CreatePlanGraspsRequest(params, MakeCandidate());
-  ASSERT_NE(req, nullptr);
-  EXPECT_EQ(req->tool_frame, "gripper_tcp");
+  const auto goal = CreatePlanGraspsGoal(params);
+  EXPECT_EQ(goal.tool_frame, "gripper_tcp");
 }
 
 TEST(MoveItPlanGraspSkillTest, ToolFrameByObjectName) {
   GraspPlanningParams params;
+  *params.add_candidate_objects() = MakeCandidate();
   params.mutable_tool_frame()
       ->mutable_by_name()
       ->mutable_object()
       ->set_object_name("gripper_tool");
 
-  auto req = CreatePlanGraspsRequest(params, MakeCandidate());
-  ASSERT_NE(req, nullptr);
-  EXPECT_EQ(req->tool_frame, "gripper_tool");
+  const auto goal = CreatePlanGraspsGoal(params);
+  EXPECT_EQ(goal.tool_frame, "gripper_tool");
 }
 
 TEST(MoveItPlanGraspSkillTest, TargetObjectById) {
   GraspPlanningParams params;
-  auto* candidate = params.add_candidate_objects();
-  candidate->set_id("box_target");
+  params.add_candidate_objects()->set_id("box_target");
 
-  auto req = CreatePlanGraspsRequest(params, *candidate);
-  ASSERT_NE(req, nullptr);
-  EXPECT_EQ(req->target.id, "box_target");
+  const auto goal = CreatePlanGraspsGoal(params);
+
+  ASSERT_EQ(goal.candidates.size(), 1u);
+  EXPECT_EQ(goal.candidates[0].target.id, "box_target");
 }
 
 TEST(MoveItPlanGraspSkillTest, TargetObjectByName) {
   GraspPlanningParams params;
-  auto* candidate = params.add_candidate_objects();
-  candidate->mutable_by_name()->set_object_name("box_named_target");
+  params.add_candidate_objects()->mutable_by_name()->set_object_name(
+      "box_named_target");
 
-  auto req = CreatePlanGraspsRequest(params, *candidate);
-  ASSERT_NE(req, nullptr);
-  EXPECT_EQ(req->target.id, "box_named_target");
+  const auto goal = CreatePlanGraspsGoal(params);
+
+  ASSERT_EQ(goal.candidates.size(), 1u);
+  EXPECT_EQ(goal.candidates[0].target.id, "box_named_target");
 }
 
-TEST(MoveItPlanGraspSkillTest, ExplicitCandidateEvaluatedWhenMultipleGiven) {
+TEST(MoveItPlanGraspSkillTest, AllCandidatesIncludedInGoal) {
   GraspPlanningParams params;
-  auto* cand1 = params.add_candidate_objects();
-  cand1->set_id("primary_box");
-  auto* cand2 = params.add_candidate_objects();
-  cand2->set_id("secondary_box");
+  params.add_candidate_objects()->set_id("primary_box");
+  params.add_candidate_objects()->set_id("secondary_box");
 
-  auto req = CreatePlanGraspsRequest(params, params.candidate_objects(1));
-  ASSERT_NE(req, nullptr);
-  EXPECT_EQ(req->target.id, "secondary_box");
+  const auto goal = CreatePlanGraspsGoal(params);
+
+  ASSERT_EQ(goal.candidates.size(), 2u);
+  EXPECT_EQ(goal.candidates[0].target.id, "primary_box");
+  EXPECT_EQ(goal.candidates[1].target.id, "secondary_box");
 }
 
 TEST(MoveItPlanGraspSkillTest, EmptyCandidateLeavesTargetUnset) {
   GraspPlanningParams params;
-  intrinsic_proto::world::ObjectReference candidate;
+  params.add_candidate_objects();
 
-  auto req = CreatePlanGraspsRequest(params, candidate);
+  const auto goal = CreatePlanGraspsGoal(params);
 
-  ASSERT_NE(req, nullptr);
-  EXPECT_TRUE(req->target.id.empty());
+  ASSERT_EQ(goal.candidates.size(), 1u);
+  EXPECT_TRUE(goal.candidates[0].target.id.empty());
 }
 
 TEST(MoveItPlanGraspSkillTest, AdvancedParamsSupportFields) {

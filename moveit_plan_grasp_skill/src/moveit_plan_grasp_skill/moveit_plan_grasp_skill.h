@@ -25,16 +25,13 @@
 #include "intrinsic/skills/cc/skill_interface.h"
 #include "intrinsic/skills/proto/skill_service.pb.h"
 #include "moveit_plan_grasp_skill.pb.h"
-#include "moveit_planning_interfaces/srv/plan_grasps.hpp"
+#include "moveit_planning_interfaces/action/plan_grasps.hpp"
 
 namespace com::generic::skills::grasp {
 
-// Helper function to build a PlanGrasps service request from
-// GraspPlanningParams.
-std::shared_ptr<moveit_planning_interfaces::srv::PlanGrasps::Request>
-CreatePlanGraspsRequest(
-    const GraspPlanningParams& params,
-    const intrinsic_proto::world::ObjectReference& candidate);
+// Helper function to build a PlanGrasps action goal from GraspPlanningParams.
+moveit_planning_interfaces::action::PlanGrasps::Goal CreatePlanGraspsGoal(
+    const GraspPlanningParams& params);
 
 // Helper function to map MoveIt error codes to absl::Status.
 absl::Status MoveItErrorCodeToStatus(int32_t error_code,

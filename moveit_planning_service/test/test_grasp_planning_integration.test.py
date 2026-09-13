@@ -40,9 +40,12 @@ from moveit_msgs.msg import (
     PlanningSceneComponents,
 )
 from moveit_msgs.srv import ApplyPlanningScene, GetPlanningScene
-from moveit_planning_interfaces.srv import PlanGrasps
+from moveit_planning_interfaces.action import PlanGrasps
+from moveit_planning_interfaces.msg import GraspCandidate
+from action_msgs.msg import GoalStatus
 import pytest
 import rclpy
+from rclpy.action import ActionClient
 from shape_msgs.msg import SolidPrimitive
 
 
@@ -126,6 +129,29 @@ class TestGraspPlanningIntegration(unittest.TestCase):
                 return future.result()
         return None
 
+    def call_action_sync(self, client, goal, timeout_sec=15.0):
+        goal_future = client.send_goal_async(goal)
+        rclpy.spin_until_future_complete(
+            self.node, goal_future, timeout_sec=timeout_sec
+        )
+
+        if not goal_future.done():
+            return None
+
+        goal_handle = goal_future.result()
+        if goal_handle is None or not goal_handle.accepted:
+            return None
+
+        result_future = goal_handle.get_result_async()
+        rclpy.spin_until_future_complete(
+            self.node, result_future, timeout_sec=timeout_sec
+        )
+
+        if not result_future.done():
+            return None
+
+        return result_future.result()
+
     def test_plan_grasps_for_collision_box(self, **kwargs):
         apply_scene_client = self.node.create_client(
             ApplyPlanningScene, '/apply_planning_scene'
@@ -133,8 +159,8 @@ class TestGraspPlanningIntegration(unittest.TestCase):
         get_scene_client = self.node.create_client(
             GetPlanningScene, '/get_planning_scene'
         )
-        plan_grasps_client = self.node.create_client(
-            PlanGrasps, '/grasp_planning/plan_grasps'
+        plan_grasps_client = ActionClient(
+            self.node, PlanGrasps, '/grasp_planning/plan_grasps'
         )
 
         # 1. Wait for required MoveIt and planning service endpoints
@@ -147,8 +173,8 @@ class TestGraspPlanningIntegration(unittest.TestCase):
             'Timed out waiting for /get_planning_scene service',
         )
         self.assertTrue(
-            self.wait_for_service(plan_grasps_client, timeout_sec=45.0),
-            'Timed out waiting for /grasp_planning/plan_grasps service',
+            plan_grasps_client.wait_for_server(timeout_sec=45.0),
+            'Timed out waiting for /grasp_planning/plan_grasps action server',
         )
 
         # 2. Add test block collision object to MoveIt planning scene
@@ -167,12 +193,30 @@ class TestGraspPlanningIntegration(unittest.TestCase):
 
         box_pose = Pose()
         box_pose.position.x = 0.3
-        box_pose.position.y = 0.0
-        box_pose.position.z = 0.2
+        box_pose.position.y = -0.18
+        box_pose.position.z = 0.015
         box_pose.orientation.w = 1.0
         collision_object.primitive_poses.append(box_pose)
 
         apply_scene_req.scene.world.collision_objects.append(collision_object)
+
+        # Adding a new candidate object to the Planning Scene.
+        second_collision_object = CollisionObject()
+        second_collision_object.header.frame_id = 'world'
+        second_collision_object.id = 'test_block_2'
+        second_collision_object.operation = CollisionObject.ADD
+        second_collision_object.primitives.append(box_primitive)
+
+        second_box_pose = Pose()
+        second_box_pose.position.x = 0.3
+        second_box_pose.position.y = 0.18
+        second_box_pose.position.z = 0.015
+        second_box_pose.orientation.w = 1.0
+        second_collision_object.primitive_poses.append(second_box_pose)
+
+        apply_scene_req.scene.world.collision_objects.append(
+            second_collision_object
+        )
 
         apply_scene_resp = self.call_service_sync(
             apply_scene_client, apply_scene_req, timeout_sec=20.0
@@ -185,83 +229,115 @@ class TestGraspPlanningIntegration(unittest.TestCase):
             'Failed to apply collision object to planning scene',
         )
 
-        # Verify collision object is registered in the planning scene
-        object_registered = False
-        start_wait = time.time()
-        while rclpy.ok() and (time.time() - start_wait) < 10.0:
+        # Checking both objects are in the planning scene.
+        expected_object_ids = {'test_block', 'test_block_2'}
+        registered_object_ids = set()
+
+        for _ in range(30):
             get_scene_req = GetPlanningScene.Request()
             get_scene_req.components.components = (
-                PlanningSceneComponents.WORLD_OBJECT_GEOMETRY
+                PlanningSceneComponents.WORLD_OBJECT_NAMES
             )
             get_scene_resp = self.call_service_sync(
-                get_scene_client, get_scene_req, timeout_sec=2.0
+                get_scene_client, get_scene_req, timeout_sec=5.0
             )
+
             if get_scene_resp is not None:
-                for obj in get_scene_resp.scene.world.collision_objects:
-                    if obj.id == 'test_block':
-                        object_registered = True
-                        break
-            if object_registered:
+                registered_object_ids = {
+                    obj.id for obj in get_scene_resp.scene.world.collision_objects
+                }
+
+            if expected_object_ids.issubset(registered_object_ids):
                 break
+
             time.sleep(0.2)
 
         self.assertTrue(
-            object_registered,
-            "Collision object 'test_block' not registered in planning scene",
+            expected_object_ids.issubset(registered_object_ids),
+            'Collision objects were not registered in the planning scene',
         )
 
-        # 3. Call grasp planning service for the target block
-        plan_grasps_req = PlanGrasps.Request()
-        plan_grasps_req.group_name = 'ur_manipulator'
-        plan_grasps_req.end_effector_group = 'hand'
-        plan_grasps_req.tool_frame = 'hande_tcp'
-        plan_grasps_req.planning_timeout_sec = 10.0
-        plan_grasps_req.gripper_motion_duration_sec = 0.75
-        plan_grasps_req.retract_dist_m = 0.1
-        plan_grasps_req.surfaces = [0, 1, 2, 3, 4, 5]
-        plan_grasps_req.num_rotations = 4
-        plan_grasps_req.target.id = 'test_block'
+        # 3. Call grasp planning action for the target block
+        plan_grasps_goal = PlanGrasps.Goal()
+        plan_grasps_goal.group_name = 'ur_manipulator'
+        plan_grasps_goal.end_effector_group = 'hand'
+        plan_grasps_goal.tool_frame = 'hande_tcp'
+        plan_grasps_goal.planning_timeout_sec = 10.0
+        plan_grasps_goal.gripper_motion_duration_sec = 0.75
+        plan_grasps_goal.retract_dist_m = 0.1
+        plan_grasps_goal.surfaces = [0, 1, 2, 3, 4, 5]
+        plan_grasps_goal.num_rotations = 4
+        plan_grasps_goal.max_num_grasps = 20
 
-        plan_grasps_resp = self.call_service_sync(
-            plan_grasps_client, plan_grasps_req, timeout_sec=15.0
+        candidate = GraspCandidate()
+        candidate.target.id = 'test_block'
+        plan_grasps_goal.candidates.append(candidate)
+
+        # Adding second candidate object to the goal action.
+        second_candidate = GraspCandidate()
+        second_candidate.target.id = 'test_block_2'
+        plan_grasps_goal.candidates.append(second_candidate)
+
+        action_response = self.call_action_sync(
+            plan_grasps_client, plan_grasps_goal, timeout_sec=15.0
         )
         self.assertIsNotNone(
-            plan_grasps_resp, 'No response received from /grasp_planning/plan_grasps'
+            action_response,
+            'No response received from /grasp_planning/plan_grasps action',
         )
+
+        self.assertEqual(
+            action_response.status,
+            GoalStatus.STATUS_SUCCEEDED,
+            f'Grasp planning action finished with status: {action_response.status}',
+        )
+
+        plan_grasps_result = action_response.result
 
         # 4. Verify planning results
         self.assertEqual(
-            plan_grasps_resp.error_code.val,
+            plan_grasps_result.error_code.val,
             MoveItErrorCodes.SUCCESS,
-            f'Grasp planning failed with error code: {plan_grasps_resp.error_code.val}',
+            f'Grasp planning failed with error code: '
+            f'{plan_grasps_result.error_code.val}',
         )
+
         self.assertGreater(
-            len(plan_grasps_resp.grasps),
+            len(plan_grasps_result.ranked_grasps),
             0,
-            'Expected at least one grasp candidate to be generated',
+            'Expected at least one ranked grasp to be generated',
         )
-        self.assertEqual(
-            len(plan_grasps_resp.grasps),
-            len(plan_grasps_resp.pre_grasp_poses),
-            'Number of grasps and pre-grasp poses should match',
-        )
-
-        self.assertEqual(
-            len(plan_grasps_resp.grasps),
-            len(plan_grasps_resp.grasp_ik_solutions),
-            'Number of grasps and grasp IK solutions should match',
+        self.assertLessEqual(
+            len(plan_grasps_result.ranked_grasps),
+            plan_grasps_goal.max_num_grasps,
+            'Action returned more grasps than max_num_grasps',
         )
 
+        expected_targets = {
+            0: 'test_block',
+            1: 'test_block_2',
+        }
+
+        returned_candidate_indexes = set()
+
+        for ranked_grasp in plan_grasps_result.ranked_grasps:
+            self.assertIn(ranked_grasp.candidate_index, expected_targets)
+            self.assertEqual(
+                ranked_grasp.target_id,
+                expected_targets[ranked_grasp.candidate_index],
+            )
+            returned_candidate_indexes.add(ranked_grasp.candidate_index)
+
         self.assertEqual(
-            len(plan_grasps_resp.grasps),
-            len(plan_grasps_resp.pregrasp_ik_solutions),
-            'Number of grasps and pregrasp IK solutions should match',
+            returned_candidate_indexes,
+            set(expected_targets),
+            'Expected valid grasps from both candidate objects',
         )
+
+        first_ranked_grasp = plan_grasps_result.ranked_grasps[0]
 
         # Validate candidate posture structures
         expected_gripper_joints = ['hande_left_finger_joint']
-
-        first_grasp = plan_grasps_resp.grasps[0]
         expected_arm_joints = [
             'shoulder_pan_joint',
             'shoulder_lift_joint',
@@ -271,8 +347,9 @@ class TestGraspPlanningIntegration(unittest.TestCase):
             'wrist_3_joint',
         ]
 
-        first_grasp_ik = plan_grasps_resp.grasp_ik_solutions[0]
-        first_pregrasp_ik = plan_grasps_resp.pregrasp_ik_solutions[0]
+        first_grasp = first_ranked_grasp.grasp
+        first_grasp_ik = first_ranked_grasp.grasp_ik_solution
+        first_pregrasp_ik = first_ranked_grasp.pregrasp_ik_solution
 
         self.assertEqual(
             first_grasp_ik.name,

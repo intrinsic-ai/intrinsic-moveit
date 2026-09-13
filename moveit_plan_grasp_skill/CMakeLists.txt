@@ -24,6 +24,7 @@ find_package(ament_cmake REQUIRED)
 find_package(abseil_cpp_vendor REQUIRED)
 find_package(absl REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
 find_package(moveit_msgs REQUIRED)
 find_package(moveit_planning_interfaces REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -80,6 +81,7 @@ target_link_libraries(moveit_plan_grasp_skill
   intrinsic_sdk_cmake::intrinsic_sdk_cmake
   moveit_plan_grasp_skill_protos
   rclcpp::rclcpp
+  rclcpp_action::rclcpp_action
   absl::log
   absl::strings
   ${moveit_msgs_TARGETS}
