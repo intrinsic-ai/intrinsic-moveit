@@ -9,7 +9,7 @@
 #include <moveit/robot_model_loader/robot_model_loader.hpp>
 #include <moveit_msgs/msg/collision_object.hpp>
 #include <moveit_msgs/srv/get_planning_scene.hpp>
-#include <moveit_planning_interfaces/srv/plan_grasps.hpp>
+#include <moveit_planning_interfaces/action/plan_grasps.hpp>
 #include <mutex>
 #include <optional>
 #include <rclcpp/rclcpp.hpp>
@@ -20,7 +20,8 @@ namespace moveit_planning_service {
 
 class GraspPlanningPipeline {
  public:
-  using PlanGraspsSrv = moveit_planning_interfaces::srv::PlanGrasps;
+  using PlanGraspsAction = moveit_planning_interfaces::action::PlanGrasps;
+  using GraspCandidate = moveit_planning_interfaces::msg::GraspCandidate;
   using GetPlanningScene = moveit_msgs::srv::GetPlanningScene;
   using PlanningSceneClient = rclcpp::Client<GetPlanningScene>;
 
@@ -37,13 +38,17 @@ class GraspPlanningPipeline {
   /**
    * @brief Executes MTC-based grasp candidate generation and motion planning.
    *
-   * @param request Grasp planning service request.
-   * @param response Grasp planning service response to populate.
+   * @param goal Grasp planning action goal containing shared planning
+   * parameters.
+   * @param candidate Candidate object to plan grasps for.
+   * @param candidate_index Index of the candidate in the action goal.
+   * @param result Grasp planning action result to populate.
    * @param service_call_timeout Timeout for internal ROS service queries (e.g.
    * GetPlanningScene).
    */
-  void PlanGrasps(const std::shared_ptr<PlanGraspsSrv::Request>& request,
-                  std::shared_ptr<PlanGraspsSrv::Response>& response,
+
+  void PlanGrasps(const PlanGraspsAction::Goal& goal, GraspCandidate candidate,
+                  uint32_t candidate_index, PlanGraspsAction::Result& result,
                   std::chrono::milliseconds service_call_timeout =
                       std::chrono::milliseconds(5000));
 

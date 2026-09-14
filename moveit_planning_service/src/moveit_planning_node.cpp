@@ -22,7 +22,6 @@
 #include <moveit_msgs/srv/get_motion_plan.hpp>
 #include <moveit_msgs/srv/get_planning_scene.hpp>
 #include <moveit_planning_interfaces/action/plan_grasps.hpp>
-#include <moveit_planning_interfaces/srv/plan_grasps.hpp>
 #include <optional>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_action/rclcpp_action.hpp>
@@ -42,58 +41,11 @@
 #include "moveit_planning_service/publish_static_transforms.hpp"
 #include "rclcpp/experimental/executors/events_executor/events_executor.hpp"
 
-using PlanGrasps = moveit_planning_interfaces::srv::PlanGrasps;
 using PlanGraspsAction = moveit_planning_interfaces::action::PlanGrasps;
 using PlanGraspsGoalHandle = rclcpp_action::ServerGoalHandle<PlanGraspsAction>;
 using RankedGrasp = moveit_planning_interfaces::msg::RankedGrasp;
 using GetPlanningScene = moveit_msgs::srv::GetPlanningScene;
 using PlanningSceneClient = rclcpp::Client<GetPlanningScene>;
-
-PlanGrasps::Request::SharedPtr CreatePlanGraspsServiceRequest(
-    const PlanGraspsAction::Goal& goal,
-    const moveit_planning_interfaces::msg::GraspCandidate& candidate) {
-  auto request = std::make_shared<PlanGrasps::Request>();
-
-  request->group_name = goal.group_name;
-  request->end_effector_group = goal.end_effector_group;
-  request->tool_frame = goal.tool_frame;
-  request->planning_timeout_sec = goal.planning_timeout_sec;
-  request->gripper_motion_duration_sec = goal.gripper_motion_duration_sec;
-  request->retract_dist_m = goal.retract_dist_m;
-  request->surfaces = goal.surfaces;
-  request->num_rotations = goal.num_rotations;
-
-  request->target = candidate.target;
-  request->obj_dims_in_meters = candidate.obj_dims_in_meters;
-  request->obj_t_obj_center = candidate.obj_t_obj_center;
-
-  return request;
-}
-
-RankedGrasp CreateRankedGrasp(uint32_t candidate_index,
-                              const std::string& target_id,
-                              const PlanGrasps::Response& response,
-                              std::size_t grasp_index) {
-  RankedGrasp ranked_grasp;
-
-  ranked_grasp.candidate_index = candidate_index;
-  ranked_grasp.target_id = target_id;
-  ranked_grasp.grasp = response.grasps[grasp_index];
-  ranked_grasp.pre_grasp_pose = response.pre_grasp_poses[grasp_index];
-  ranked_grasp.grasp_ik_solution = response.grasp_ik_solutions[grasp_index];
-  ranked_grasp.pregrasp_ik_solution =
-      response.pregrasp_ik_solutions[grasp_index];
-
-  return ranked_grasp;
-}
-
-bool HasConsistentGraspResponseSizes(const PlanGrasps::Response& response) {
-  const std::size_t grasp_count = response.grasps.size();
-
-  return response.pre_grasp_poses.size() == grasp_count &&
-         response.grasp_ik_solutions.size() == grasp_count &&
-         response.pregrasp_ik_solutions.size() == grasp_count;
-}
 
 std::optional<std::vector<RankedGrasp>> PlanGraspsForCandidate(
     const PlanGraspsAction::Goal& goal,
@@ -102,38 +54,20 @@ std::optional<std::vector<RankedGrasp>> PlanGraspsForCandidate(
     const std::shared_ptr<moveit_planning_service::GraspPlanningPipeline>&
         grasp_pipeline,
     std::chrono::milliseconds service_call_timeout) {
-  auto request = CreatePlanGraspsServiceRequest(goal, candidate);
-  auto response = std::make_shared<PlanGrasps::Response>();
+  PlanGraspsAction::Result candidate_result;
+  grasp_pipeline->PlanGrasps(goal, candidate, candidate_index, candidate_result,
+                             service_call_timeout);
 
-  grasp_pipeline->PlanGrasps(request, response, service_call_timeout);
-
-  if (response->error_code.val != moveit_msgs::msg::MoveItErrorCodes::SUCCESS) {
+  if (candidate_result.error_code.val !=
+      moveit_msgs::msg::MoveItErrorCodes::SUCCESS) {
     RCLCPP_WARN(rclcpp::get_logger("moveit_planning_service"),
                 "Grasp planning failed for candidate '%s' with error code %d.",
-                candidate.target.id.c_str(), response->error_code.val);
+                candidate.target.id.c_str(), candidate_result.error_code.val);
 
     return std::vector<RankedGrasp>{};
   }
 
-  if (!HasConsistentGraspResponseSizes(*response)) {
-    RCLCPP_ERROR(
-        rclcpp::get_logger("moveit_planning_service"),
-        "Grasp planning returned inconsistent result sizes for candidate '%s'.",
-        candidate.target.id.c_str());
-
-    return std::nullopt;
-  }
-
-  std::vector<RankedGrasp> ranked_grasps;
-  ranked_grasps.reserve(response->grasps.size());
-
-  for (std::size_t grasp_index = 0; grasp_index < response->grasps.size();
-       ++grasp_index) {
-    ranked_grasps.push_back(CreateRankedGrasp(
-        candidate_index, request->target.id, *response, grasp_index));
-  }
-
-  return ranked_grasps;
+  return std::move(candidate_result.ranked_grasps);
 }
 
 rclcpp_action::GoalResponse handle_plan_grasps_goal(
@@ -734,30 +668,6 @@ int main(int argc, char** argv) {
       std::make_shared<moveit_planning_service::GraspPlanningPipeline>(
           node, planning_scene_client);
 
-  auto grasp_service = node->create_service<PlanGrasps>(
-      "grasp_planning/plan_grasps",
-      [node, grasp_pipeline, scene_synchronizer, scene_ready](
-          const PlanGrasps::Request::SharedPtr request,
-          PlanGrasps::Response::SharedPtr response) {
-        if (!scene_ready->load()) {
-          RCLCPP_WARN(node->get_logger(),
-                      "Rejecting grasp planning request: "
-                      "collision scene is not ready yet.");
-          response->error_code.val =
-              moveit_msgs::msg::MoveItErrorCodes::FAILURE;
-          return;
-        }
-        if (scene_synchronizer) {
-          scene_synchronizer->fetchAndSynchronizeCollisionObjects(std::nullopt);
-        }
-        double timeout_sec = 5.0;
-        node->get_parameter("ros_service_call_timeout_sec", timeout_sec);
-        const auto service_call_timeout = std::chrono::milliseconds(
-            static_cast<int64_t>(timeout_sec * 1000.0));
-        grasp_pipeline->PlanGrasps(request, response, service_call_timeout);
-      },
-      rclcpp::ServicesQoS(), planning_services_callback_group);
-
   auto grasp_action_server = rclcpp_action::create_server<PlanGraspsAction>(
       node, "grasp_planning/plan_grasps",
       [scene_ready](const rclcpp_action::GoalUUID& uuid,
@@ -783,7 +693,6 @@ int main(int argc, char** argv) {
   RCLCPP_INFO(node->get_logger(), "MoveIt Planning Service started.");
   RCLCPP_INFO(node->get_logger(), "Ready to receive requests at:");
   RCLCPP_INFO(node->get_logger(), " - motion_planning/get_motion_plan");
-  RCLCPP_INFO(node->get_logger(), " - grasp_planning/plan_grasps (service)");
   RCLCPP_INFO(node->get_logger(), " - grasp_planning/plan_grasps (action)");
   RCLCPP_INFO(node->get_logger(), " - ~/sync_collision_objects");
 

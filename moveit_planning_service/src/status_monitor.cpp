@@ -25,7 +25,8 @@
 #include "moveit_msgs/msg/planning_scene_components.hpp"
 #include "moveit_msgs/srv/get_motion_plan.hpp"
 #include "moveit_msgs/srv/get_planning_scene.hpp"
-#include "moveit_planning_interfaces/srv/plan_grasps.hpp"
+#include "moveit_planning_interfaces/action/plan_grasps.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
@@ -71,8 +72,9 @@ MoveItStatusClient::MoveItStatusClient(const rclcpp::NodeOptions& options)
   motion_plan_client_ =
       this->create_client<moveit_msgs::srv::GetMotionPlan>(kMotionPlanTopic);
   grasp_plan_client_ =
-      this->create_client<moveit_planning_interfaces::srv::PlanGrasps>(
-          kGraspPlanTopic);
+      rclcpp_action::create_client<
+          moveit_planning_interfaces::action::PlanGrasps>(
+          this, kGraspPlanTopic);
 
   joint_state_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
       "/joint_states", rclcpp::SystemDefaultsQoS(),
@@ -183,7 +185,7 @@ SubsystemHealthReport MoveItStatusClient::check_health() {
 
   // 2. Verify moveit_planning_node endpoints exist
   if (!motion_plan_client_->service_is_ready() ||
-      !grasp_plan_client_->service_is_ready()) {
+      !grasp_plan_client_->action_server_is_ready()) {
     report.healthy = false;
     report.title = "Planning Service Node Offline";
     report.message =

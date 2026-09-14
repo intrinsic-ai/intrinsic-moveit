@@ -28,8 +28,11 @@ from moveit_msgs.srv import ApplyPlanningScene, GetPlanningScene
 from rclpy.client import Client
 from rclpy.node import Node
 from shape_msgs.msg import SolidPrimitive
+from action_msgs.msg import GoalStatus
 
-from moveit_planning_interfaces.srv import PlanGrasps
+from moveit_planning_interfaces.action import PlanGrasps
+from moveit_planning_interfaces.msg import GraspCandidate
+from rclpy.action import ActionClient
 
 DEFAULT_CANDIDATE_COUNTS = (1, 2, 4, 8, 10)
 DEFAULT_REPETITIONS = 5
@@ -43,23 +46,12 @@ class BenchmarkConfig:
 
 
 @dataclass(frozen=True)
-class CandidateMeasurement:
-    object_id: str
-    duration_sec: float
-    success: bool
-    grasp_count: int
-    error_code: int
-
-
-@dataclass(frozen=True)
 class BatchMeasurement:
     candidate_count: int
     duration_sec: float
-    candidate_measurements: tuple[CandidateMeasurement, ...]
-
-    @property
-    def successful_candidates(self) -> int:
-        return sum(measurement.success for measurement in self.candidate_measurements)
+    successful_candidates: int
+    grasp_count: int
+    error_code: int
 
 
 class GraspPlanningBenchmark(Node):
@@ -75,8 +67,8 @@ class GraspPlanningBenchmark(Node):
             GetPlanningScene, "/get_planning_scene"
         )
 
-        self.plan_grasp_client: Client = self.create_client(
-            PlanGrasps, "/grasp_planning/plan_grasps"
+        self.plan_grasp_client = ActionClient(
+            self, PlanGrasps, "/grasp_planning/plan_grasps"
         )
 
     def wait_for_services(self, timeout_sec: float = 30.0) -> bool:
@@ -85,7 +77,6 @@ class GraspPlanningBenchmark(Node):
         clients: tuple[tuple[str, Client], ...] = (
             ("/apply_planning_scene", self.apply_planning_scene_client),
             ("/get_planning_scene", self.get_scene_client),
-            ("/grasp_planning/plan_grasps", self.plan_grasp_client),
         )
 
         for service_name, client in clients:
@@ -96,6 +87,15 @@ class GraspPlanningBenchmark(Node):
                     f"Service {service_name} not available after {timeout_sec:.1f} seconds."
                 )
                 return False
+
+        self.get_logger().info("Waiting for action /grasp_planning/plan_grasps...")
+
+        if not self.plan_grasp_client.wait_for_server(timeout_sec=timeout_sec):
+            self.get_logger().error(
+                "Action /grasp_planning/plan_grasps "
+                f"not available after {timeout_sec:.1f} seconds."
+            )
+            return False
         return True
 
     def create_collision_box(self, index: int) -> CollisionObject:
@@ -240,93 +240,84 @@ class GraspPlanningBenchmark(Node):
         )
         return True
 
-    def create_plan_grasp_request(
-        self, index: int, planning_timeout_sec: float
-    ) -> PlanGrasps.Request:
-        """Create a grasp planning request for one candidate object."""
+    def create_grasp_candidate(self, index: int) -> GraspCandidate:
+        """Create one grasp candidate for a collision object."""
 
-        request = PlanGrasps.Request()
-        request.group_name = "ur_manipulator"
-        request.end_effector_group = "hand"
-        request.tool_frame = "hande_tcp"
-        request.planning_timeout_sec = planning_timeout_sec
-        request.gripper_motion_duration_sec = 0.5
-        request.retract_dist_m = 0.1
-        request.surfaces = [0, 1, 2, 3, 4, 5]
-        request.num_rotations = 4
+        candidate = GraspCandidate()
+        candidate.target.id = f"benchmark_box_{index}"
 
-        request.obj_dims_in_meters.x = 0.03
-        request.obj_dims_in_meters.y = 0.03
-        request.obj_dims_in_meters.z = 0.03
-        request.obj_t_obj_center.orientation.w = 1.0
+        candidate.obj_dims_in_meters.x = 0.03
+        candidate.obj_dims_in_meters.y = 0.03
+        candidate.obj_dims_in_meters.z = 0.03
+        candidate.obj_t_obj_center.orientation.w = 1.0
 
-        request.target.id = f"benchmark_box_{index}"
+        return candidate
 
-        return request
-
-    def plan_candidate(
+    def create_plan_grasps_goal(
         self,
-        index: int,
+        candidate_count: int,
         planning_timeout_sec: float,
-    ) -> CandidateMeasurement:
-        """Plan grasp for one candidate object and measure the duration."""
+    ) -> PlanGrasps.Goal:
 
-        request = self.create_plan_grasp_request(index, planning_timeout_sec)
+        goal = PlanGrasps.Goal()
+        goal.group_name = "ur_manipulator"
+        goal.end_effector_group = "hand"
+        goal.tool_frame = "hande_tcp"
+        goal.planning_timeout_sec = planning_timeout_sec
+        goal.gripper_motion_duration_sec = 0.5
+        goal.retract_dist_m = 0.1
+        goal.surfaces = [0, 1, 2, 3, 4, 5]
+        goal.num_rotations = 4
+        goal.max_num_grasps = candidate_count * 10
+
+        for index in range(candidate_count):
+            goal.candidates.append(self.create_grasp_candidate(index))
+
+        return goal
+
+    def run_action_batch(
+        self,
+        candidate_count: int,
+        planning_timeout_sec: float,
+    ) -> BatchMeasurement:
+        """Send one goal containing all candidates and measure its duration."""
+
+        goal = self.create_plan_grasps_goal(
+            candidate_count,
+            planning_timeout_sec,
+        )
+
+        # The server processes candidates sequentially. Give every candidate
+        # its configured planning time plus a small communication margin.
+        action_timeout_sec = candidate_count * planning_timeout_sec + 5.0
 
         start_time = time.perf_counter()
-        response = self.call_service(
-            self.plan_grasp_client, request, timeout_sec=planning_timeout_sec + 5.0
+        action_response = self.call_action(
+            goal,
+            timeout_sec=action_timeout_sec,
         )
         duration_sec = time.perf_counter() - start_time
 
-        if response is None:
-            return CandidateMeasurement(
-                object_id=request.target.id,
+        if action_response is None:
+            return BatchMeasurement(
+                candidate_count=candidate_count,
                 duration_sec=duration_sec,
-                success=False,
+                successful_candidates=0,
                 grasp_count=0,
                 error_code=MoveItErrorCodes.TIMED_OUT,
             )
 
-        success: bool = response.error_code.val == MoveItErrorCodes.SUCCESS and bool(
-            response.grasps
-        )
-
-        return CandidateMeasurement(
-            object_id=request.target.id,
-            duration_sec=duration_sec,
-            success=success,
-            grasp_count=len(response.grasps),
-            error_code=response.error_code.val,
-        )
-
-    def run_sequential_batch(
-        self, candidate_count: int, planning_timeout_sec: float
-    ) -> BatchMeasurement:
-        """Plan a batch of candidate objects sequentially and measure the total time."""
-
-        candidate_measurements: list[CandidateMeasurement] = []
-
-        batch_start_time: float = time.perf_counter()
-
-        for index in range(candidate_count):
-            measurement = self.plan_candidate(index, planning_timeout_sec)
-            candidate_measurements.append(measurement)
-
-            self.get_logger().info(
-                f"{measurement.object_id}: "
-                f"{measurement.duration_sec:.3f} s, "
-                f"success={measurement.success}, "
-                f"grasps={measurement.grasp_count}, "
-                f"error_code={measurement.error_code}"
-            )
-
-        batch_duration_sec = time.perf_counter() - batch_start_time
+        result = action_response.result
+        successful_candidate_indexes = {
+            ranked_grasp.candidate_index for ranked_grasp in result.ranked_grasps
+        }
 
         return BatchMeasurement(
             candidate_count=candidate_count,
-            duration_sec=batch_duration_sec,
-            candidate_measurements=tuple(candidate_measurements),
+            duration_sec=duration_sec,
+            successful_candidates=len(successful_candidate_indexes),
+            grasp_count=len(result.ranked_grasps),
+            error_code=result.error_code.val,
         )
 
     def call_service(self, client: Client, request, timeout_sec: float):
@@ -350,6 +341,51 @@ class GraspPlanningBenchmark(Node):
             return None
 
         return future.result()
+
+    def call_action(self, goal: PlanGrasps.Goal, timeout_sec: float):
+        """Send an action goal and wait for its final result."""
+
+        goal_future = self.plan_grasp_client.send_goal_async(goal)
+        rclpy.spin_until_future_complete(
+            self,
+            goal_future,
+            timeout_sec=timeout_sec,
+        )
+
+        if not goal_future.done():
+            self.get_logger().error(
+                f"Sending grasp planning goal timed out after "
+                f"{timeout_sec:.1f} seconds."
+            )
+            return None
+
+        goal_handle = goal_future.result()
+        if goal_handle is None or not goal_handle.accepted:
+            self.get_logger().error("Grasp planning goal was rejected.")
+            return None
+
+        result_future = goal_handle.get_result_async()
+        rclpy.spin_until_future_complete(
+            self,
+            result_future,
+            timeout_sec=timeout_sec,
+        )
+
+        if not result_future.done():
+            self.get_logger().error(
+                f"Grasp planning action timed out after " f"{timeout_sec:.1f} seconds."
+            )
+            goal_handle.cancel_goal_async()
+            return None
+
+        action_response = result_future.result()
+        if action_response.status != GoalStatus.STATUS_SUCCEEDED:
+            self.get_logger().error(
+                f"Grasp planning action finished with status "
+                f"{action_response.status}."
+            )
+
+        return action_response
 
     def run_benchmark(
         self, config: BenchmarkConfig
@@ -380,14 +416,14 @@ class GraspPlanningBenchmark(Node):
             self.get_logger().info(
                 "Running one warm-up request before collecting measurements."
             )
-            warmup: CandidateMeasurement = self.plan_candidate(
-                index=0,
+            warmup = self.run_action_batch(
+                candidate_count=1,
                 planning_timeout_sec=config.planning_timeout_sec,
             )
 
             self.get_logger().info(
                 f"Warm-up completed in {warmup.duration_sec:.3f} s "
-                f"with success={warmup.success}."
+                f"with {warmup.successful_candidates}/1 successful candidate."
             )
 
             for repetition in range(1, config.repetitions + 1):
@@ -396,7 +432,7 @@ class GraspPlanningBenchmark(Node):
                     f"repetition={repetition}/{config.repetitions}."
                 )
 
-                measurement: BatchMeasurement = self.run_sequential_batch(
+                measurement: BatchMeasurement = self.run_action_batch(
                     candidate_count=candidate_count,
                     planning_timeout_sec=config.planning_timeout_sec,
                 )
@@ -430,7 +466,9 @@ def print_summary(
     )
 
     for candidate_count, measurements in results.items():
-        durations: list[float] = [measurement.duration_sec for measurement in measurements]
+        durations: list[float] = [
+            measurement.duration_sec for measurement in measurements
+        ]
         successful_candidates: int = sum(
             measurement.successful_candidates for measurement in measurements
         )

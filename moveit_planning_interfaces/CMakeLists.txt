@@ -29,7 +29,6 @@ find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/GraspCandidate.msg"
   "msg/RankedGrasp.msg"
-  "srv/PlanGrasps.srv"
   "action/PlanGrasps.action"
   DEPENDENCIES geometry_msgs moveit_msgs sensor_msgs
 )
