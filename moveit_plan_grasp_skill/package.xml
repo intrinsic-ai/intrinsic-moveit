@@ -20,7 +20,7 @@ limitations under the License.
 <package format="3">
   <name>moveit_plan_grasp_skill</name>
   <version>0.0.1</version>
-  <description>Skill that interfaces with MoveIt GraspPlanning service using MoveIt Task Constructor.</description>
+  <description>Skill that interfaces with MoveIt grasp-planning action using MoveIt Task Constructor.</description>
   <maintainer email="aaronchong@google.com">Aaron Chong</maintainer>
   <license>Apache License 2.0</license>
 

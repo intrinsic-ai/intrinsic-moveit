@@ -11,18 +11,18 @@ Intrinsic Core is the primary supported deployment environment, with the primary
 
 ## Repository Structure
 
-*   [`docs/`](./docs/): Configuration and architecture guides:
-    *   [`flowstate_integration.md`](./docs/flowstate_integration.md): Instructions on running this integration with Flowstate.
-    *   [`flowstate_ros_bridge_configuration.md`](./docs/flowstate_ros_bridge_configuration.md): Required `flowstate_ros_bridge` service configuration values, and how to apply them on Intrinsic Core and Flowstate.
-*   [`moveit_planning_service/`](./moveit_planning_service/): Consolidated ROS 2 planning service handling motion planning (`motion_planning/get_motion_plan`), grasp planning (`grasp_planning/plan_grasps`), in-process World scene synchronization, and TF/joint-state streaming.
-*   [`moveit_planning_interfaces/`](./moveit_planning_interfaces/): ROS 2 service and message definitions (e.g. `PlanGrasps.srv`).
-*   [`moveit_plan_motion_skill/`](./moveit_plan_motion_skill/): C++ client skill executing motion planning requests against the planning service.
-*   [`moveit_plan_grasp_skill/`](./moveit_plan_grasp_skill/): C++ client skill executing grasp planning requests against the planning service.
-*   [`robot_hardware_description/`](./robot_hardware_description/): Hardware description (URDF/Xacro macros and meshes) for the UR5e robot with Robotiq Hand-E gripper and wrist-mounted Orbbec Gemini 335Le camera.
-*   [`robot_hardware_moveit_config/`](./third_party/robot_hardware_moveit_config/): MoveIt configuration package containing SRDF, kinematics solver parameters, joint limits, controllers, and planning pipelines (OMPL, STOMP, Pilz).
-*   [`Makefile`](./Makefile): Automation script for building OCI container images, bundling assets and running tests.
-*   [`Dockerfile.service`](./Dockerfile.service): Multi-stage Dockerfile building and packaging `moveit_planning_service` into runtime container images.
-*   [`Dockerfile.skill`](./Dockerfile.skill): Dockerfile building and packaging skills (`moveit_plan_motion_skill` and `moveit_plan_grasp_skill`) into container images.
+* [`docs/`](./docs/): Configuration and architecture guides:
+  * [`flowstate_integration.md`](./docs/flowstate_integration.md): Instructions on running this integration with Flowstate.
+  * [`flowstate_ros_bridge_configuration.md`](./docs/flowstate_ros_bridge_configuration.md): Required `flowstate_ros_bridge` service configuration values, and how to apply them on Intrinsic Core and Flowstate.
+* [`moveit_planning_service/`](./moveit_planning_service/): Consolidated ROS 2 planning service exposing motion planning through the `motion_planning/get_motion_plan` service and grasp planning through the `grasp_planning/plan_grasps` action, with in-process World scene synchronization and TF/joint-state streaming.
+* [`moveit_planning_interfaces/`](./moveit_planning_interfaces/): ROS 2 action and message definitions for grasp planning (e.g. `PlanGrasps.action`, `GraspCandidate.msg`, and `RankedGrasp.msg`).
+* [`moveit_plan_motion_skill/`](./moveit_plan_motion_skill/): C++ client skill executing motion planning requests against the planning service.
+* [`moveit_plan_grasp_skill/`](./moveit_plan_grasp_skill/): C++ client skill executing grasp planning requests against the planning service.
+* [`robot_hardware_description/`](./robot_hardware_description/): Hardware description (URDF/Xacro macros and meshes) for the UR5e robot with Robotiq Hand-E gripper and wrist-mounted Orbbec Gemini 335Le camera.
+* [`robot_hardware_moveit_config/`](./third_party/robot_hardware_moveit_config/): MoveIt configuration package containing SRDF, kinematics solver parameters, joint limits, controllers, and planning pipelines (OMPL, STOMP, Pilz).
+* [`Makefile`](./Makefile): Automation script for building OCI container images, bundling assets and running tests.
+* [`Dockerfile.service`](./Dockerfile.service): Multi-stage Dockerfile building and packaging `moveit_planning_service` into runtime container images.
+* [`Dockerfile.skill`](./Dockerfile.skill): Dockerfile building and packaging skills (`moveit_plan_motion_skill` and `moveit_plan_grasp_skill`) into container images.
 
 ## Building and Running Services Locally
 
@@ -147,24 +147,32 @@ ros2 service call /apply_planning_scene moveit_msgs/srv/ApplyPlanningScene "{
 }"
 ```
 
-#### Step 2: Test Grasp Planning Service (`/grasp_planning/plan_grasps`)
+#### Step 2: Test Grasp Planning Action (`/grasp_planning/plan_grasps`)
 
 Send a grasp planning request for the registered `target_box`:
 
 ```bash
-ros2 service call /grasp_planning/plan_grasps moveit_planning_interfaces/srv/PlanGrasps "{
-  group_name: 'ur_manipulator',
-  end_effector_group: 'hand',
-  tool_frame: 'hande_tcp',
-  planning_timeout_sec: 5.0,
-  retract_dist_m: 0.1,
-  surfaces: [0, 1, 2, 3, 4, 5],
-  num_rotations: 4,
-  target: {id: 'target_box'}
-}"
+ros2 action send_goal /grasp_planning/plan_grasps \
+  moveit_planning_interfaces/action/PlanGrasps \
+  "{group_name: 'ur_manipulator',
+    end_effector_group: 'hand',
+    tool_frame: 'hande_tcp',
+    planning_timeout_sec: 5.0,
+    gripper_motion_duration_sec: 0.5,
+    retract_dist_m: 0.1,
+    surfaces: [0, 1, 2, 3, 4, 5],
+    num_rotations: 4,
+    max_num_grasps: 10,
+    candidates: [{
+      target: {id: 'test_box'},
+      obj_dims_in_meters: {x: 0.05, y: 0.05, z: 0.05},
+      obj_t_obj_center: {orientation: {w: 1.0}}
+    }]}" \
+  --feedback
 ```
 
 Expected Response:
+
 * `grasps`: Array of generated `moveit_msgs/Grasp` candidates containing joint trajectories for `pre_grasp_posture` and `grasp_posture`.
 * `pre_grasp_poses`: Array of `geometry_msgs/PoseStamped` poses for the end-effector.
 * `error_code.val`: `1` (`SUCCESS`).
@@ -211,7 +219,7 @@ Always verify startup logs in the terminal (for local runs) or via the **Text Lo
 [INFO] [moveit_planning_node]: MoveIt Planning Service started.
 [INFO] [moveit_planning_node]: Ready to receive requests at:
 [INFO] [moveit_planning_node]:  - motion_planning/get_motion_plan
-[INFO] [moveit_planning_node]:  - grasp_planning/plan_grasps
+[INFO] [moveit_planning_node]:  - grasp_planning/plan_grasps (action)
 ```
 
 ### 2. Manual Collision Object Synchronization
@@ -256,7 +264,7 @@ sudo ln -s /usr/lib/x86_64-linux-gnu/libxml2.so.16 /usr/lib/x86_64-linux-gnu/lib
 
 1. **Unified Service Process**: `moveit_planning_service` hosts both planning engines (`move_group`, `moveit_planning_node`) and in-process World synchronization (`MoveitSceneSynchronizer`), eliminating multi-process IPC and startup race conditions.
 2. **In-Process Scene Synchronization**: `MoveitSceneSynchronizer` broadcasts static transforms (`world -> root`, `ur_module/base_link -> base_link`), converting world meshes into MoveIt collision objects, and streaming joint states and `/tf` transforms.
-3. **Planning Endpoints**: `moveit_planning_node` advertises ROS 2 services for motion planning (`motion_planning/get_motion_plan`) and grasp planning (`grasp_planning/plan_grasps`), leveraging MoveIt and MoveIt Task Constructor (`MTC`).
+3. **Planning Endpoints**: `moveit_planning_node` exposes the `motion_planning/get_motion_plan` ROS 2 service and the `grasp_planning/plan_grasps` ROS 2 action, leveraging MoveIt and MoveIt Task Constructor (`MTC`).
 4. **Skill Execution**: Sideloaded C++ skills (`moveit_plan_motion_skill` and `moveit_plan_grasp_skill`) run as independent ROS 2 client nodes when triggered by Intrinsic Core, communicating with the planning service over Zenoh/ROS 2 and returning structured protobuf results.
 
 ---

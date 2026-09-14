@@ -26,7 +26,7 @@ Intrinsic Core is the primary supported environment. Licensed users can also dep
 
 ## Integration Testing
 
-An automated launch integration test (`test_grasp_planning_integration.test.py`) verifies the grasp planning pipeline with mock hardware: starting the planning service, adding a collision object to the planning scene, verifying synchronization, and calling `/grasp_planning/plan_grasps`.
+An automated launch integration test (`test_grasp_planning_integration.test.py`) verifies the grasp planning pipeline with mock hardware: starting the planning service, adding multiple collision objects to the planning scene, verifying their registration, and sending a multi-candidate goal to the `/grasp_planning/plan_grasps` action.
 
 Run the integration test with colcon:
 
@@ -37,7 +37,7 @@ colcon test-result --verbose
 
 ---
 
-## Testing ROS 2 Services
+## Testing ROS 2 Planning Endpoints
 
 After launching the service (see [Building and Running Services Locally](../README.md#3-launching-the-moveit-planning-service-locally)), open a new terminal, source the workspace, and call the service endpoints:
 
@@ -72,17 +72,26 @@ ros2 service call /apply_planning_scene moveit_msgs/srv/ApplyPlanningScene "{
 
 ### 2. Request Grasp Planning (`/grasp_planning/plan_grasps`)
 
+The action accepts multiple candidate objects in one goal and returns the valid grasps ranked by `grasp_quality`.
+
 ```bash
-ros2 service call /grasp_planning/plan_grasps moveit_planning_interfaces/srv/PlanGrasps "{
-  group_name: 'ur_manipulator',
-  end_effector_group: 'hand',
-  tool_frame: 'hande_tcp',
-  planning_timeout_sec: 5.0,
-  retract_dist_m: 0.1,
-  surfaces: [0, 1, 2, 3, 4, 5],
-  num_rotations: 4,
-  target: {id: 'test_object'}
-}"
+ros2 action send_goal /grasp_planning/plan_grasps \
+  moveit_planning_interfaces/action/PlanGrasps \
+  "{group_name: 'ur_manipulator',
+    end_effector_group: 'hand',
+    tool_frame: 'hande_tcp',
+    planning_timeout_sec: 5.0,
+    gripper_motion_duration_sec: 0.5,
+    retract_dist_m: 0.1,
+    surfaces: [0, 1, 2, 3, 4, 5],
+    num_rotations: 4,
+    max_num_grasps: 10,
+    candidates: [{
+      target: {id: 'test_object'},
+      obj_dims_in_meters: {x: 0.05, y: 0.05, z: 0.05},
+      obj_t_obj_center: {orientation: {w: 1.0}}
+    }]}" \
+  --feedback
 ```
 
 ### 3. Request Motion Planning (`/motion_planning/get_motion_plan`)
@@ -99,6 +108,33 @@ ros2 service call /motion_planning/get_motion_plan moveit_msgs/srv/GetMotionPlan
 
 ---
 
+## Grasp Planning Benchmark
+
+The benchmark measures the total time required to process an increasing number of candidate objects. Each measured run sends one action goal containing all candidates. The action currently plans those candidates sequentially.
+
+Start the planning service in standalone mode:
+
+```bash
+source install/setup.bash
+ros2 launch moveit_planning_service service.launch.py \
+  headless:=true \
+  use_mock_hardware:=true \
+  expect_collision_objects:=false \
+  start_service_status_monitor:=false
+```
+
+In another terminal, run:
+
+```bash
+source install/setup.bash
+ros2 run moveit_planning_service benchmark_grasp_planning.py \
+  --candidate-counts 1 2 4 8 10 \
+  --repetitions 5 \
+  --planning-timeout-sec 10
+```
+
+---
+
 ## Troubleshooting Guide
 
 ### 1. Inspect Service Logs After Startup
@@ -109,7 +145,7 @@ Verify that MoveIt and the service endpoints are ready:
 [INFO] [moveit_planning_node]: MoveIt Planning Service started.
 [INFO] [moveit_planning_node]: Ready to receive requests at:
 [INFO] [moveit_planning_node]:  - motion_planning/get_motion_plan
-[INFO] [moveit_planning_node]:  - grasp_planning/plan_grasps
+[INFO] [moveit_planning_node]:  - grasp_planning/plan_grasps (action)
 ```
 
 ### 2. Planning Node Blocking Waiting for Collision Objects
@@ -120,9 +156,9 @@ If running without scene objects or bridge, set `expect_collision_objects:=false
 
 ## Advertised ROS 2 Interfaces
 
-| Service Name | Type | Description |
+| Endpoint | Type | Description |
 | :--- | :--- | :--- |
 | `motion_planning/get_motion_plan` | `moveit_msgs/srv/GetMotionPlan` | Geometric trajectory planning endpoint |
-| `grasp_planning/plan_grasps` | `moveit_planning_interfaces/srv/PlanGrasps` | MTC-based box candidate grasp generator |
+| `grasp_planning/plan_grasps` | `moveit_planning_interfaces/action/PlanGrasps` | Multi-candidate MTC grasp-planning action with ranked results and progress feedback |
 | `~/sync_collision_objects` | `std_srvs/srv/Trigger` | In-process World collision scene synchronization endpoint |
 | `status_monitor` | `ServiceState` (gRPC) | Platform health and lifecycle service monitor |
