@@ -217,10 +217,13 @@ std::vector<std::string> get_planning_scene_object_ids(
 void handle_motion_plan_request(
     const rclcpp::Node::SharedPtr &node,
     const std::shared_ptr<std::atomic<bool>> &scene_ready,
+    PlanningSceneClient::SharedPtr planning_scene_client,
     const std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Request> request,
     std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Response> response) {
   
-
+  RCLCPP_WARN(
+        node->get_logger(),
+        "!!!!!!!!!!!! ENTERING");
             
   // Don't bother to do anything is the scene is not ready yet
   if (!scene_ready->load()) {
@@ -243,6 +246,11 @@ void handle_motion_plan_request(
     return;
   }
 
+  RCLCPP_WARN(
+        node->get_logger(),
+        "!!!!!!!!!!!! GOAL CHECKED");
+
+
   // The goal position is a frame and a link that should be aligned with that frame.
   // target_frame will be the frame, tool_frame will be the link.
   const auto &goal_constraint =
@@ -263,9 +271,10 @@ void handle_motion_plan_request(
               group_name.c_str(), tool_frame.c_str(), target_frame.c_str());
 
   //------ Begin Query planning scene from MoveIt
-  auto get_scene_client =
+/*   auto get_scene_client =
       node->create_client<moveit_msgs::srv::GetPlanningScene>(
-          "/get_planning_scene");
+          "/get_planning_scene"); */
+
 
   auto scene_req =
       std::make_shared<moveit_msgs::srv::GetPlanningScene::Request>();
@@ -276,7 +285,7 @@ void handle_motion_plan_request(
       moveit_msgs::msg::PlanningSceneComponents::TRANSFORMS;
 
   auto timeout = std::chrono::milliseconds(100000);
-  if (!get_scene_client->wait_for_service(timeout)) {
+  if (!planning_scene_client->wait_for_service(timeout)) {
     RCLCPP_ERROR(node->get_logger(),
                  "Service '/get_planning_scene' not ready.");
     response->motion_plan_response.error_code.val =
@@ -284,7 +293,12 @@ void handle_motion_plan_request(
     return;
   }
 
-  auto future = get_scene_client->async_send_request(scene_req);
+  RCLCPP_WARN(
+      node->get_logger(),
+      "!!!!!!!!!!!! About to get planning scene");
+
+ 
+  auto future = planning_scene_client->async_send_request(scene_req);
   moveit_msgs::srv::GetPlanningScene::Response::SharedPtr scene_resp;
   if (future.wait_for(timeout) == std::future_status::ready) {
     try {
@@ -303,6 +317,12 @@ void handle_motion_plan_request(
         moveit_msgs::msg::MoveItErrorCodes::FAILURE;
     return;
   }
+
+  RCLCPP_WARN(
+      node->get_logger(),
+      "!!!!!!!!!!!! Planning scene fetched");
+
+
   // END ----------------------------------------------------------
 
   // Let's start building our MTC
@@ -400,7 +420,7 @@ void handle_motion_plan_request(
   move_to->setGoal(target_pose_stamped);
   task.add(std::move(move_to));
 
-   // Execute the planne
+   // Execute the plan
   auto start_planning_time = std::chrono::steady_clock::now();
   try {
     task.init();
@@ -411,6 +431,13 @@ void handle_motion_plan_request(
         moveit_msgs::msg::MoveItErrorCodes::FAILURE;
     return;
   }
+
+
+  RCLCPP_WARN(
+        node->get_logger(),
+        "!!!!!!!!!!!! PLAN EXECUTED");
+
+
 
   //Check results
   const auto planning_result = task.plan(1);
@@ -449,6 +476,11 @@ void handle_motion_plan_request(
         moveit_msgs::msg::MoveItErrorCodes::PLANNING_FAILED;
     return;
   }
+
+  RCLCPP_WARN(
+        node->get_logger(),
+        "!!!!!!!!!!!! ABOUT TO CONVER TRAJECTORY");
+
 
   //Conver the SubTrajctory to a RobotTrajectory
   moveit_msgs::msg::RobotTrajectory trajectory_msg;
@@ -898,14 +930,14 @@ int main(int argc, char **argv) {
 
   auto motion_service = node->create_service<moveit_msgs::srv::GetMotionPlan>(
       "motion_planning/get_motion_plan",
-      [node, scene_synchronizer, scene_ready](
+      [node, planning_scene_client, scene_synchronizer, scene_ready](
           const std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Request>
               request,
           std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Response> response) {
         if (scene_synchronizer) {
           scene_synchronizer->fetchAndSynchronizeCollisionObjects(std::nullopt);
         }
-        handle_motion_plan_request(node, scene_ready, request, response);
+        handle_motion_plan_request(node, scene_ready, planning_scene_client, request, response);
       },
       rclcpp::ServicesQoS(), planning_services_callback_group);
 
