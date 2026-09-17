@@ -24,7 +24,7 @@ metadata {
     display_name: "Intrinsic"
   }
   documentation {
-    description: "A consolidated service exposing MoveIt motion planning and MoveIt Task Constructor grasp planning capabilities."
+    description: "A consolidated MoveIt service integrating World/Robot synchronization, motion planning, and MoveIt Task Constructor grasp planning capabilities."
   }
   display_name: "MoveIt Planning Service"
 }

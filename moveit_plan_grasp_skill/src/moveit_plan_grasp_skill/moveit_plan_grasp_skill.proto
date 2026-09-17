@@ -23,32 +23,38 @@ import "intrinsic/manipulation/grasping/grasp.proto";
 message GraspPlanningParams {
   // === Required / Core Parameters ===
 
-  // Candidate objects to plan grasps for.
-  // Note: Currently, only the first object (candidate_objects[0]) is evaluated
-  // as the primary grasp target. Candidate pool iteration will be addressed later.
+  // Candidate objects to plan grasps for. All objects in the pool are evaluated
+  // and resulting grasp candidates are ranked across the pool by quality.
   repeated intrinsic_proto.world.ObjectReference candidate_objects = 1;
 
   // The tool frame to use for the grasp (e.g., gripper tool_frame / hande_tcp).
   intrinsic_proto.world.TransformNodeReference tool_frame = 2;
 
-  // Parameters to generate box-shaped grasp annotations (dimensions, center pose, rotations, surfaces).
-  intrinsic_proto.grasping.BoxShapedGraspAnnotationParams box_grasp_annotations = 3;
+  // Parameters to generate box-shaped grasp annotations (dimensions, center
+  // pose, rotations, surfaces).
+  intrinsic_proto.grasping.BoxShapedGraspAnnotationParams
+      box_grasp_annotations = 3;
 
   // === Optional Configuration & Overrides ===
 
-  // Pre-allocated frame in the World Service to be updated to the grasp pose of the top grasp.
+  // Pre-allocated frame in the World Service to be updated to the grasp pose of
+  // the top grasp.
   optional intrinsic_proto.world.TransformNodeReference output_grasp_frame = 4;
 
-  // Pre-allocated frame in the World Service to be updated to the pregrasp pose of the top grasp.
-  optional intrinsic_proto.world.TransformNodeReference output_pregrasp_frame = 5;
+  // Pre-allocated frame in the World Service to be updated to the pregrasp pose
+  // of the top grasp.
+  optional intrinsic_proto.world.TransformNodeReference output_pregrasp_frame =
+      5;
 
-  // The distance between grasp and pregrasp frames in meters. Defaults to 0.1 (10cm).
+  // The distance between grasp and pregrasp frames in meters. Defaults to 0.1
+  // (10cm).
   optional double retract_dist_m = 6;
 
   // The MoveIt planning group used. Defaults to "ur_manipulator".
   optional string group_name = 7;
 
-  // Timeout for the planning request in milliseconds. Defaults to 10000.0 (10 seconds).
+  // Timeout for the planning request in milliseconds. Defaults to 10000.0 (10
+  // seconds).
   optional double timeout_ms = 8;
 
   // The MoveIt end-effector group used for grasp planning. Defaults to "hand".
@@ -59,6 +65,10 @@ message GraspPlanningParams {
 
   // Maximum number of grasps to return. Defaults to 1.
   optional int64 max_num_grasps = 11;
+
+  // Time for the gripper to reach its open or closed posture in seconds.
+  // Default to 0.5 seconds
+  optional double gripper_motion_duration_sec = 12;
 }
 
 message GraspPlanningResult {

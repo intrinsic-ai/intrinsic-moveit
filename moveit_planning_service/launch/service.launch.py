@@ -37,14 +37,14 @@ def generate_launch_description():
     start_service_status_monitor_arg = DeclareLaunchArgument(
         "start_service_status_monitor",
         default_value="true",
-        description="Whether to start the service status monitor. Defaults to true, which starts reporting service status to Flowstate",
+        description="Whether to start the service status monitor. Defaults to true, which starts reporting service status to the platform",
     )
 
     # Declare launch argument for mock hardware mode
     use_mock_hardware_arg = DeclareLaunchArgument(
         "use_mock_hardware",
         default_value="false",
-        description="If true, start mock ros2_control hardware (for offline testing without Flowstate bridge)",
+        description="If true, start mock ros2_control hardware (for offline testing without platform bridge)",
     )
 
     ros_service_call_timeout_sec_arg = DeclareLaunchArgument(
@@ -56,13 +56,43 @@ def generate_launch_description():
     add_collision_retry_interval_sec_arg = DeclareLaunchArgument(
         "add_collision_retry_interval_sec",
         default_value="2.0",
-        description="Interval in seconds between add_collision_objects service retries",
+        description="Interval in seconds between retries to synchronize collision objects",
     )
 
     expect_collision_objects_arg = DeclareLaunchArgument(
         "expect_collision_objects",
         default_value="true",
         description="If true, require non-empty collision objects in MoveIt planning scene before marking node ready",
+    )
+
+    publish_world_root_tf_arg = DeclareLaunchArgument(
+        "publish_world_root_tf",
+        default_value="true",
+        description="Whether to publish static transform from world to root in connected mode",
+    )
+
+    publish_robot_base_tf_arg = DeclareLaunchArgument(
+        "publish_robot_base_tf",
+        default_value="true",
+        description="Whether to publish static transform from robot_base_frame_id to base_link in connected mode",
+    )
+
+    intrinsic_core_ingress_address_arg = DeclareLaunchArgument(
+        "intrinsic_core_ingress_address",
+        default_value="localhost:17080",
+        description="Ingress gateway address for the World service (default localhost:17080)",
+    )
+
+    zenoh_router_address_arg = DeclareLaunchArgument(
+        "zenoh_router_address",
+        default_value="tcp/localhost:7447",
+        description="Address of Zenoh router for local execution (default tcp/localhost:7447)",
+    )
+
+    world_sync_interval_sec_arg = DeclareLaunchArgument(
+        "world_sync_interval_sec",
+        default_value="2.0",
+        description="Interval in seconds for periodic background synchronization of World objects",
     )
 
     # Load MoveIt configuration from robot_hardware_moveit_config
@@ -73,6 +103,14 @@ def generate_launch_description():
     planning_params = [
         moveit_config.to_dict(),
         {
+            "intrinsic_core_ingress_address": ParameterValue(
+                LaunchConfiguration("intrinsic_core_ingress_address"),
+                value_type=str,
+            ),
+            "zenoh_router_address": ParameterValue(
+                LaunchConfiguration("zenoh_router_address"),
+                value_type=str,
+            ),
             "ros_service_call_timeout_sec": ParameterValue(
                 LaunchConfiguration("ros_service_call_timeout_sec"),
                 value_type=float,
@@ -87,6 +125,22 @@ def generate_launch_description():
             ),
             "use_mock_hardware": ParameterValue(
                 LaunchConfiguration("use_mock_hardware"),
+                value_type=bool,
+            ),
+            "publish_world_root_tf": ParameterValue(
+                LaunchConfiguration("publish_world_root_tf"),
+                value_type=bool,
+            ),
+            "publish_robot_base_tf": ParameterValue(
+                LaunchConfiguration("publish_robot_base_tf"),
+                value_type=bool,
+            ),
+            "world_sync_interval_sec": ParameterValue(
+                LaunchConfiguration("world_sync_interval_sec"),
+                value_type=float,
+            ),
+            "use_sim_time": ParameterValue(
+                LaunchConfiguration("use_sim_time"),
                 value_type=bool,
             ),
         },
@@ -111,14 +165,16 @@ def generate_launch_description():
     rsp_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(robot_moveit_config_path, "launch", "rsp.launch.py")
-        )
+        ),
+        launch_arguments={"use_sim_time": LaunchConfiguration("use_sim_time")}.items(),
     )
 
     # Include Move Group action server & planning scene manager
     move_group_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(robot_moveit_config_path, "launch", "move_group.launch.py")
-        )
+        ),
+        launch_arguments={"use_sim_time": LaunchConfiguration("use_sim_time")}.items(),
     )
 
     # Include Static Virtual Joint TFs if launch file exists (only active when using mock hardware)
@@ -129,6 +185,7 @@ def generate_launch_description():
     if os.path.exists(static_vj_launch_path):
         static_vj_launch = IncludeLaunchDescription(
             PythonLaunchDescriptionSource(static_vj_launch_path),
+            launch_arguments={"use_sim_time": LaunchConfiguration("use_sim_time")}.items(),
             condition=IfCondition(LaunchConfiguration("use_mock_hardware")),
         )
 
@@ -178,7 +235,14 @@ def generate_launch_description():
         condition=UnlessCondition(LaunchConfiguration("headless")),
     )
 
-    # Status monitor node providing Flowstate ServiceState gRPC server (active in headless/deployed mode)
+    # Declare launch argument for use_sim_time
+    use_sim_time_arg = DeclareLaunchArgument(
+        "use_sim_time",
+        default_value="false",
+        description="Use simulation clock if true",
+    )
+
+    # Status monitor node providing ServiceState gRPC server (active in headless/deployed mode)
     status_monitor_node = Node(
         package="moveit_planning_service",
         executable="status_monitor",
@@ -187,8 +251,22 @@ def generate_launch_description():
         output="both",
         parameters=[
             {
-                "service_call_timeout_sec": LaunchConfiguration("ros_service_call_timeout_sec"),
-                "expect_collision_objects": LaunchConfiguration("expect_collision_objects"),
+                "ros_service_call_timeout_sec": ParameterValue(
+                    LaunchConfiguration("ros_service_call_timeout_sec"),
+                    value_type=float,
+                ),
+                "expect_collision_objects": ParameterValue(
+                    LaunchConfiguration("expect_collision_objects"),
+                    value_type=bool,
+                ),
+                "use_mock_hardware": ParameterValue(
+                    LaunchConfiguration("use_mock_hardware"),
+                    value_type=bool,
+                ),
+                "use_sim_time": ParameterValue(
+                    LaunchConfiguration("use_sim_time"),
+                    value_type=bool,
+                ),
             },
         ],
         condition=IfCondition(LaunchConfiguration("start_service_status_monitor")),
@@ -199,9 +277,15 @@ def generate_launch_description():
         start_service_status_monitor_arg,
         rviz_config_arg,
         use_mock_hardware_arg,
+        use_sim_time_arg,
+        intrinsic_core_ingress_address_arg,
+        zenoh_router_address_arg,
         ros_service_call_timeout_sec_arg,
         add_collision_retry_interval_sec_arg,
         expect_collision_objects_arg,
+        publish_world_root_tf_arg,
+        publish_robot_base_tf_arg,
+        world_sync_interval_sec_arg,
         rsp_launch,
         move_group_launch,
         ros2_control_node,

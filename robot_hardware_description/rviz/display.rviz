@@ -91,7 +91,7 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
-        camera_mount_cam_mount_link:
+        orbbec_camera_link:
           Alpha: 1
           Show Axes: false
           Show Trail: false

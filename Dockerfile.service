@@ -36,7 +36,7 @@ ENV RMW_IMPLEMENTATION=rmw_zenoh_cpp
 FROM base AS underlay
 
 ARG ROS_DISTRO=jazzy
-ARG SERVICE_PACKAGE=moveit_flowstate_ros_bridge
+ARG SERVICE_PACKAGE=moveit_planning_service
 
 # 1. Add repo files before any source code to maximize caching
 ADD ${ROS_DISTRO}.repos /opt/ros/underlay/${ROS_DISTRO}.repos
@@ -98,7 +98,7 @@ ARG SERVICE_NAME
 ARG DEPENDENCIES
 
 # Resolve target package name across differing build script conventions (prioritize ROS_PACKAGE_NAME_ARG from Makefile)
-ENV TARGET_PACKAGE=${ROS_PACKAGE_NAME_ARG:-${SERVICE_PACKAGE:-moveit_flowstate_ros_bridge}}
+ENV TARGET_PACKAGE=${ROS_PACKAGE_NAME_ARG:-${SERVICE_PACKAGE:-moveit_planning_service}}
 
 RUN apt-get update \
     && apt-get install -y ros-${ROS_DISTRO}-rmw-zenoh-cpp python3-protobuf ${DEPENDENCIES} \
@@ -109,10 +109,9 @@ RUN mkdir -p /opt/ros/overlay/src
 
 # Add only local workspace packages to this layer so changes only rebuild the overlay
 ADD robot_hardware_description /opt/ros/overlay/src/robot_hardware_description
-ADD robot_hardware_moveit_config /opt/ros/overlay/src/robot_hardware_moveit_config
+ADD third_party/robot_hardware_moveit_config /opt/ros/overlay/src/third_party/robot_hardware_moveit_config
 ADD moveit_planning_service /opt/ros/overlay/src/moveit_planning_service
 ADD moveit_planning_interfaces /opt/ros/overlay/src/moveit_planning_interfaces
-ADD moveit_flowstate_ros_bridge /opt/ros/overlay/src/moveit_flowstate_ros_bridge
 
 # Install overlay dependencies, build target package, and purge source and build caches in the same layer
 RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
@@ -138,7 +137,7 @@ ARG ROS_PACKAGE_NAME_ARG
 ARG SERVICE_PACKAGE
 ARG SERVICE_NAME
 
-ENV ROS_PACKAGE_NAME=${ROS_PACKAGE_NAME_ARG:-${SERVICE_PACKAGE:-moveit_flowstate_ros_bridge}}
+ENV ROS_PACKAGE_NAME=${ROS_PACKAGE_NAME_ARG:-${SERVICE_PACKAGE:-moveit_planning_service}}
 ENV SERVICE_NAME=${SERVICE_NAME:-${ROS_PACKAGE_NAME}}
 ENV SERVICE_WORKSPACE=/opt/ros/overlay
 

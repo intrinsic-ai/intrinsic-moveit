@@ -152,7 +152,7 @@
   <joint name="wrist_3_joint" type="revolute">
     <parent link="wrist_2_link"/>
     <child link="wrist_3_link"/>
-    <origin rpy="-1.57079632679 0 0" xyz="0.0 0.0996 0"/>
+    <origin rpy="-1.57079632679 3.14159265359 0" xyz="0.0 0.0996 0"/>
     <axis xyz="0 0 1"/>
     <limit effort="28.0" lower="-6.2831853" upper="6.2831853" velocity="3.1415927"/>
   </joint>

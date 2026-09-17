@@ -16,6 +16,7 @@ string group_name
 string end_effector_group
 string tool_frame
 float64 planning_timeout_sec
+float64 gripper_motion_duration_sec
 float64 retract_dist_m
 int32[] surfaces
 int32 num_rotations
@@ -25,4 +26,6 @@ moveit_msgs/CollisionObject target
 ---
 moveit_msgs/Grasp[] grasps
 geometry_msgs/PoseStamped[] pre_grasp_poses
+sensor_msgs/JointState[] grasp_ik_solutions
+sensor_msgs/JointState[] pregrasp_ik_solutions
 moveit_msgs/MoveItErrorCodes error_code

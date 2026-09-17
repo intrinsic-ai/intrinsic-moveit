@@ -115,12 +115,16 @@ void GenerateBoxGraspPoses::init(
 }
 
 void GenerateBoxGraspPoses::onNewSolution(const mtc::SolutionBase& s) {
+  if (s.end() == nullptr || s.end()->scene() == nullptr) {
+    return;
+  }
   planning_scene::PlanningSceneConstPtr scene = s.end()->scene();
   auto& props = properties();
   std::string object = props.get<std::string>("object");
   if (!scene->knowsFrameTransform(object)) {
-    // Flowstate Object World scene objects are exported with the convention "<object_name>/<entity_name>"
-    // (e.g. "building_block/whole"). If the root object name was supplied, resolve to the entity frame.
+    // World scene objects are exported with the convention
+    // "<object_name>/<entity_name>" (e.g. "building_block/whole"). If the root
+    // object name was supplied, resolve to the entity frame.
     if (scene->knowsFrameTransform(object + "/whole")) {
       object = object + "/whole";
       props.set("object", object);
@@ -137,7 +141,13 @@ void GenerateBoxGraspPoses::compute() {
   if (upstream_solutions_.empty()) return;
 
   const mtc::SolutionBase& s = *upstream_solutions_.pop();
+  if (s.end() == nullptr || s.end()->scene() == nullptr) {
+    return;
+  }
   planning_scene::PlanningScenePtr scene = s.end()->scene()->diff();
+  if (!scene || !scene->getRobotModel()) {
+    return;
+  }
 
   const auto& props = properties();
   const std::string& eef = props.get<std::string>("eef");

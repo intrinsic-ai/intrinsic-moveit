@@ -25,8 +25,12 @@ limitations under the License.
   <license>Apache License 2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>pkg-config</buildtool_depend>
+
+  <build_depend>liblttng-ust-dev</build_depend>
 
   <depend>abseil_cpp_vendor</depend>
+  <depend>eigen</depend>
   <depend>rclcpp</depend>
   <depend>std_srvs</depend>
   <depend>moveit_msgs</depend>
@@ -37,6 +41,12 @@ limitations under the License.
   <depend>ament_index_cpp</depend>
   <depend>intrinsic_sdk_cmake</depend>
   <depend>tf2_ros</depend>
+  <depend>tf2_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>shape_msgs</depend>
+  <depend>geometric_shapes</depend>
+  <depend>flowstate_ros_bridge</depend>
 
   <!-- MoveIt Hardware Config & Execution Dependencies -->
   <exec_depend>robot_hardware_moveit_config</exec_depend>

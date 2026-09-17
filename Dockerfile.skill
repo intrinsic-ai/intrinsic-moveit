@@ -133,7 +133,7 @@ exec ros2 run "${SKILL_PACKAGE}" "${SKILL_EXECUTABLE_NAME}" "\$@"
 EOF
 RUN chmod +x /run_skill.sh
 
-# Link skill executable and config file into locations required by Flowstate
+# Link skill executable and config file into locations required by Intrinsic Core
 RUN set -x \
     && mkdir -p /skills \
     && ln -sf /run_skill.sh /skills/skill_service \

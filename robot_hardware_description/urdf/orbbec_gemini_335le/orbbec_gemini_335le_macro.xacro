@@ -1,0 +1,102 @@
+<?xml version="1.0"?>
+
+<!--
+Copyright 2026 Intrinsic Innovation LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+
+<robot xmlns:xacro="http://wiki.ros.org/xacro">
+
+  <!--
+    Orbbec Gemini 335Le Camera Macro
+    Derived directly from orbbec_gemini_335le.sdf
+  -->
+  <xacro:macro name="orbbec_gemini_335le" params="name:=camera tf_prefix:=camera_">
+
+    <link name="${tf_prefix}link"/>
+
+    <link name="${tf_prefix}mesh_frame">
+      <visual name="visual">
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://robot_hardware_description/meshes/orbbec_gemini_335le/orbbec_gemini_335le_visual.obj"/>
+        </geometry>
+      </visual>
+    </link>
+
+    <joint name="${tf_prefix}color_to_mesh" type="fixed">
+      <origin xyz="0.02375 0.0145 -0.035" rpy="0.0 -1.57079632679 1.57079632679"/>
+      <parent link="${tf_prefix}link"/>
+      <child link="${tf_prefix}mesh_frame"/>
+    </joint>
+
+    <link name="${tf_prefix}mesh_centroid_frame">
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <mass value="0.22"/>
+        <inertia ixx="0.000297" ixy="0.0" ixz="0.0"
+                 iyy="0.000061" iyz="0.0"
+                 izz="0.000328"/>
+      </inertial>
+
+      <collision name="collision">
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.05 0.124 0.029"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <joint name="${tf_prefix}mesh_to_centroid" type="fixed">
+      <origin xyz="0.013 0.0 0.0145" rpy="0 0 0"/>
+      <parent link="${tf_prefix}mesh_frame"/>
+      <child link="${tf_prefix}mesh_centroid_frame"/>
+    </joint>
+
+    <!-- ================= Sensor Frames (ROS Standard) ================= -->
+    <!-- Color frame -->
+    <link name="${tf_prefix}color_frame"/>
+    <joint name="${tf_prefix}color_joint" type="fixed">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <parent link="${tf_prefix}link"/>
+      <child link="${tf_prefix}color_frame"/>
+    </joint>
+
+    <!-- Color optical frame (standard ROS camera optical convention: z forward, x right, y down) -->
+    <link name="${tf_prefix}color_optical_frame"/>
+    <joint name="${tf_prefix}color_optical_joint" type="fixed">
+      <origin xyz="0 0 0" rpy="-1.57079632679 0.0 -1.57079632679"/>
+      <parent link="${tf_prefix}color_frame"/>
+      <child link="${tf_prefix}color_optical_frame"/>
+    </joint>
+
+    <!-- Depth frame -->
+    <link name="${tf_prefix}depth_frame"/>
+    <joint name="${tf_prefix}depth_joint" type="fixed">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <parent link="${tf_prefix}link"/>
+      <child link="${tf_prefix}depth_frame"/>
+    </joint>
+
+    <!-- Depth optical frame (standard ROS camera optical convention: z forward, x right, y down) -->
+    <link name="${tf_prefix}depth_optical_frame"/>
+    <joint name="${tf_prefix}depth_optical_joint" type="fixed">
+      <origin xyz="0 0 0" rpy="-1.57079632679 0.0 -1.57079632679"/>
+      <parent link="${tf_prefix}depth_frame"/>
+      <child link="${tf_prefix}depth_optical_frame"/>
+    </joint>
+
+  </xacro:macro>
+
+</robot>
