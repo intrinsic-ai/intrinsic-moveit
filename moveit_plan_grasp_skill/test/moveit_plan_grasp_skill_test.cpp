@@ -16,7 +16,11 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <cstdlib>
+#include <rclcpp/rclcpp.hpp>
 #include <string>
+#include <thread>
 
 #include "intrinsic/world/proto/object_world_refs.pb.h"
 #include "moveit_plan_grasp_skill.pb.h"
@@ -37,6 +41,7 @@ TEST(MoveItPlanGraspSkillTest, BasicParametersMappedCorrectly) {
   params.set_end_effector_group("gripper");
   params.set_timeout_ms(5000.0);
   params.set_retract_dist_m(0.12);
+  params.set_gripper_motion_duration_sec(0.75);
 
   auto req = CreatePlanGraspsRequest(params, MakeCandidate());
   ASSERT_NE(req, nullptr);
@@ -44,6 +49,7 @@ TEST(MoveItPlanGraspSkillTest, BasicParametersMappedCorrectly) {
   EXPECT_EQ(req->end_effector_group, "gripper");
   EXPECT_DOUBLE_EQ(req->planning_timeout_sec, 5.0);
   EXPECT_DOUBLE_EQ(req->retract_dist_m, 0.12);
+  EXPECT_DOUBLE_EQ(req->gripper_motion_duration_sec, 0.75);
 }
 
 TEST(MoveItPlanGraspSkillTest, DefaultValuesAppliedCorrectly) {
@@ -56,6 +62,7 @@ TEST(MoveItPlanGraspSkillTest, DefaultValuesAppliedCorrectly) {
   EXPECT_EQ(req->end_effector_group, "hand");
   EXPECT_DOUBLE_EQ(req->planning_timeout_sec, 10.0);
   EXPECT_DOUBLE_EQ(req->retract_dist_m, 0.1);
+  EXPECT_DOUBLE_EQ(req->gripper_motion_duration_sec, 0.5);
 }
 
 TEST(MoveItPlanGraspSkillTest, BoxGraspAnnotationsMappedCorrectly) {
@@ -183,5 +190,92 @@ TEST(MoveItPlanGraspSkillTest, AdvancedParamsSupportFields) {
   EXPECT_EQ(params.output_pregrasp_frame().id(), "world/target_pregrasp");
 }
 
+TEST(MoveItPlanGraspSkillTest, MoveItErrorCodeToStatusSuccess) {
+  auto status = MoveItErrorCodeToStatus(
+      moveit_msgs::msg::MoveItErrorCodes::SUCCESS, "box");
+  EXPECT_TRUE(status.ok());
+}
+
+TEST(MoveItPlanGraspSkillTest, MoveItErrorCodeToStatusInvalidObjectName) {
+  auto status_with_target = MoveItErrorCodeToStatus(
+      moveit_msgs::msg::MoveItErrorCodes::INVALID_OBJECT_NAME, "test_part");
+  EXPECT_EQ(status_with_target.code(), absl::StatusCode::kNotFound);
+  EXPECT_NE(status_with_target.message().find("test_part"), std::string::npos);
+
+  auto status_without_target = MoveItErrorCodeToStatus(
+      moveit_msgs::msg::MoveItErrorCodes::INVALID_OBJECT_NAME);
+  EXPECT_EQ(status_without_target.code(), absl::StatusCode::kNotFound);
+  EXPECT_EQ(status_without_target.message(),
+            "Target object was not found in the planning scene.");
+}
+
+TEST(MoveItPlanGraspSkillTest, MoveItErrorCodeToStatusInvalidGroupName) {
+  auto status = MoveItErrorCodeToStatus(
+      moveit_msgs::msg::MoveItErrorCodes::INVALID_GROUP_NAME);
+  EXPECT_EQ(status.code(), absl::StatusCode::kInvalidArgument);
+}
+
+TEST(MoveItPlanGraspSkillTest, MoveItErrorCodeToStatusInvalidRobotState) {
+  auto status = MoveItErrorCodeToStatus(
+      moveit_msgs::msg::MoveItErrorCodes::INVALID_ROBOT_STATE);
+  EXPECT_EQ(status.code(), absl::StatusCode::kFailedPrecondition);
+}
+
+TEST(MoveItPlanGraspSkillTest, MoveItErrorCodeToStatusTimedOut) {
+  auto status = MoveItErrorCodeToStatus(
+      moveit_msgs::msg::MoveItErrorCodes::TIMED_OUT, "target_box");
+  EXPECT_EQ(status.code(), absl::StatusCode::kDeadlineExceeded);
+  EXPECT_NE(status.message().find("target_box"), std::string::npos);
+}
+
+TEST(MoveItPlanGraspSkillTest, MoveItErrorCodeToStatusPlanningFailed) {
+  auto status = MoveItErrorCodeToStatus(
+      moveit_msgs::msg::MoveItErrorCodes::PLANNING_FAILED, "unreachable_box");
+  EXPECT_EQ(status.code(), absl::StatusCode::kNotFound);
+  EXPECT_NE(status.message().find("unreachable_box"), std::string::npos);
+}
+
+TEST(MoveItPlanGraspSkillTest, MoveItErrorCodeToStatusCollisionsAndNoIK) {
+  auto start_col = MoveItErrorCodeToStatus(
+      moveit_msgs::msg::MoveItErrorCodes::START_STATE_IN_COLLISION);
+  EXPECT_EQ(start_col.code(), absl::StatusCode::kFailedPrecondition);
+
+  auto goal_col = MoveItErrorCodeToStatus(
+      moveit_msgs::msg::MoveItErrorCodes::GOAL_IN_COLLISION, "box");
+  EXPECT_EQ(goal_col.code(), absl::StatusCode::kFailedPrecondition);
+  EXPECT_NE(goal_col.message().find("box"), std::string::npos);
+
+  auto no_ik = MoveItErrorCodeToStatus(
+      moveit_msgs::msg::MoveItErrorCodes::NO_IK_SOLUTION, "box");
+  EXPECT_EQ(no_ik.code(), absl::StatusCode::kNotFound);
+  EXPECT_NE(no_ik.message().find("box"), std::string::npos);
+}
+
+TEST(MoveItPlanGraspSkillTest, MoveItErrorCodeToStatusGenericFailure) {
+  auto status = MoveItErrorCodeToStatus(
+      moveit_msgs::msg::MoveItErrorCodes::FAILURE, "target");
+  EXPECT_EQ(status.code(), absl::StatusCode::kInternal);
+  EXPECT_NE(status.message().find("target"), std::string::npos);
+}
+
+TEST(MoveItPlanGraspSkillTest, MoveItErrorCodeToStatusUnknownErrorCode) {
+  auto status = MoveItErrorCodeToStatus(-999, "unknown_part");
+  EXPECT_EQ(status.code(), absl::StatusCode::kInternal);
+  EXPECT_NE(status.message().find("-999"), std::string::npos);
+  EXPECT_NE(status.message().find("unknown_part"), std::string::npos);
+}
+
 }  // namespace
 }  // namespace com::generic::skills::grasp
+
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  if (!rclcpp::ok()) {
+    rclcpp::init(argc, argv);
+  }
+  int success = RUN_ALL_TESTS();
+  if (rclcpp::ok()) {
+    rclcpp::shutdown();
+  }
+  return success;
+}

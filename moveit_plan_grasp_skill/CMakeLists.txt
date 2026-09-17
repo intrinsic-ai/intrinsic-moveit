@@ -26,6 +26,7 @@ find_package(absl REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(moveit_msgs REQUIRED)
 find_package(moveit_planning_interfaces REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 # Intrinsic Dependencies
 find_package(intrinsic_sdk_cmake REQUIRED)
@@ -83,6 +84,7 @@ target_link_libraries(moveit_plan_grasp_skill
   absl::strings
   ${moveit_msgs_TARGETS}
   ${moveit_planning_interfaces_TARGETS}
+  ${sensor_msgs_TARGETS}
 )
 
 add_dependencies(moveit_plan_grasp_skill moveit_plan_grasp_skill_config)

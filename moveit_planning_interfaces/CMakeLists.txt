@@ -23,11 +23,12 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(moveit_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/PlanGrasps.srv"
-  DEPENDENCIES geometry_msgs moveit_msgs
+  DEPENDENCIES geometry_msgs moveit_msgs sensor_msgs
 )
 
 if(BUILD_TESTING)

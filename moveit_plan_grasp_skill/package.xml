@@ -30,6 +30,7 @@ limitations under the License.
   <depend>intrinsic_sdk_cmake</depend>
   <depend>rclcpp</depend>
   <depend>moveit_msgs</depend>
+  <depend>sensor_msgs</depend>
   <depend>moveit_planning_interfaces</depend>
 
   <test_depend>ament_cmake_gtest</test_depend>

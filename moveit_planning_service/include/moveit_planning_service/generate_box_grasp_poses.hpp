@@ -14,13 +14,14 @@
 
 #pragma once
 
+#include <moveit/task_constructor/stages/generate_pose.h>
+#include <moveit/task_constructor/storage.h>
+
 #include <Eigen/Geometry>
 #include <boost/any.hpp>
 #include <geometry_msgs/msg/pose.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <moveit/planning_scene/planning_scene.hpp>
-#include <moveit/task_constructor/stages/generate_pose.h>
-#include <moveit/task_constructor/storage.h>
 #include <string>
 #include <vector>
 

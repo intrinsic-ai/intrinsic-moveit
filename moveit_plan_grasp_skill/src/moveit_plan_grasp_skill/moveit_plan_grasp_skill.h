@@ -15,10 +15,13 @@
 #ifndef MOVEIT_PLAN_GRASP_SKILL_H_
 #define MOVEIT_PLAN_GRASP_SKILL_H_
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "intrinsic/skills/cc/skill_interface.h"
 #include "intrinsic/skills/proto/skill_service.pb.h"
 #include "moveit_plan_grasp_skill.pb.h"
@@ -26,9 +29,16 @@
 
 namespace com::generic::skills::grasp {
 
-// Helper function to build a PlanGrasps service request from GraspPlanningParams.
+// Helper function to build a PlanGrasps service request from
+// GraspPlanningParams.
 std::shared_ptr<moveit_planning_interfaces::srv::PlanGrasps::Request>
-CreatePlanGraspsRequest(const GraspPlanningParams& params, const intrinsic_proto::world::ObjectReference& candidate);
+CreatePlanGraspsRequest(
+    const GraspPlanningParams& params,
+    const intrinsic_proto::world::ObjectReference& candidate);
+
+// Helper function to map MoveIt error codes to absl::Status.
+absl::Status MoveItErrorCodeToStatus(int32_t error_code,
+                                     absl::string_view target_id = "");
 
 class GraspPlanningSkill final : public intrinsic::skills::SkillInterface {
  public:

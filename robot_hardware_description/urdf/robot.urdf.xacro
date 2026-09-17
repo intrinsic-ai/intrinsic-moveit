@@ -26,13 +26,10 @@ limitations under the License.
 
   <!-- Local hardware components -->
   <xacro:include
-    filename="$(find robot_hardware_description)/urdf/axia80_m20/axia80_m20_macro.xacro"/>
-
-  <xacro:include
-    filename="$(find robot_hardware_description)/urdf/camera_mount/cam_mount_macro.xacro"/>
-
-  <xacro:include
     filename="$(find robot_hardware_description)/urdf/robotiq_hande/robotiq_hande_macro.xacro"/>
+
+  <xacro:include
+    filename="$(find robot_hardware_description)/urdf/orbbec_gemini_335le/orbbec_gemini_335le_macro.xacro"/>
 
   <!-- UR5e Arm -->
   <xacro:ur5e_robot
@@ -42,17 +39,12 @@ limitations under the License.
     <origin xyz="0 0 0" rpy="0 0 0"/>
   </xacro:ur5e_robot>
 
-  <!-- External FT sensor -->
-  <xacro:axia80_m20 tf_prefix="axia_"/>
-
-  <!-- Camera mounting plate -->
-  <xacro:camera_mount tf_prefix="camera_mount_"/>
-
-  <!-- Robotiq Hand-E -->
+  <!-- Robotiq Hand-E, adding 1mm additional opening to grasp 50mm objects -->
+  <!-- This has been reflected in third_party/robot_hardware_moveit_config/config/robot_hardware.srdf as well -->
   <xacro:robotiq_hande
     name="robotiq_hande"
     tf_prefix="hande_"
-    grip_pos_min="0.0"
+    grip_pos_min="-0.001"
     grip_pos_max="0.025"
     grip_vel_max="0.05"
     grip_effort_min="20"
@@ -60,25 +52,23 @@ limitations under the License.
     initial_pos="0.00655"
     use_ros2_control="false"/>
 
-  <!-- UR5e flange -> camera/FT mounting plate -->
-  <joint name="flange_to_camera_mount" type="fixed">
-    <origin xyz="0 0 -.0265" rpy="0 0 0"/>
-    <parent link="flange"/>
-    <child link="camera_mount_cam_mount_link"/>
-  </joint>
+  <!-- Orbbec Gemini 335Le Camera -->
+  <xacro:orbbec_gemini_335le
+    name="orbbec_camera"
+    tf_prefix="orbbec_camera_"/>
 
-  <!-- Mounting plate -> Axia80-M20 -->
-  <joint name="camera_mount_to_axia80" type="fixed">
-    <origin xyz="0 0 0.0265" rpy="0 0 0"/>
-    <parent link="camera_mount_cam_mount_link"/>
-    <child link="axia_base_link"/>
-  </joint>
-
-  <!-- Axia80-M20 -> Hand-E -->
-  <joint name="axia80_to_hande" type="fixed">
+  <!-- UR5e flange -> Hand-E -->
+  <joint name="flange_to_hande" type="fixed">
     <origin xyz="0 0 0" rpy="0 0 0"/>
-    <parent link="axia_tool_link"/>
+    <parent link="flange"/>
     <child link="hande_hande_base_link"/>
+  </joint>
+
+  <!-- UR5e flange -> Camera -->
+  <joint name="flange_to_orbbec_camera" type="fixed">
+    <origin xyz="0.025379 0.093008 0.077824" rpy="-0.35550899 0.00730122 3.13241238"/>
+    <parent link="flange"/>
+    <child link="orbbec_camera_link"/>
   </joint>
 
 </robot>

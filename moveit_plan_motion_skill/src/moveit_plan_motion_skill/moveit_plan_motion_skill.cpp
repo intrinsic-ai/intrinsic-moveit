@@ -26,11 +26,10 @@
 #include "google/protobuf/message.h"
 #include "intrinsic/skills/cc/skill_utils.h"
 #include "intrinsic/util/status/status_macros.h"
-
-#include "rclcpp/rclcpp.hpp"
 #include "moveit_msgs/msg/move_it_error_codes.hpp"
 #include "moveit_msgs/srv/get_motion_plan.hpp"
 #include "moveit_plan_motion_skill.pb.h"
+#include "rclcpp/rclcpp.hpp"
 
 namespace com::generic::skills::motion {
 
@@ -49,11 +48,13 @@ class MotionPlanningRosClient : public rclcpp::Node {
  public:
   MotionPlanningRosClient() : Node("motion_planning_skill_client") {}
 
-  absl::StatusOr<moveit_msgs::srv::GetMotionPlan::Response::SharedPtr> CallGetMotionPlan(
+  absl::StatusOr<moveit_msgs::srv::GetMotionPlan::Response::SharedPtr>
+  CallGetMotionPlan(
       const std::string& service_name,
       std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Request> request,
       double timeout_ms) {
-    auto client = this->create_client<moveit_msgs::srv::GetMotionPlan>(service_name);
+    auto client =
+        this->create_client<moveit_msgs::srv::GetMotionPlan>(service_name);
     auto timeout = std::chrono::milliseconds(static_cast<int>(timeout_ms));
     if (!client->wait_for_service(timeout)) {
       return absl::UnavailableError(
@@ -72,14 +73,14 @@ class MotionPlanningRosClient : public rclcpp::Node {
 };
 }  // namespace
 
-std::unique_ptr<intrinsic::skills::SkillInterface> MotionPlanningSkill::CreateSkill() {
+std::unique_ptr<intrinsic::skills::SkillInterface>
+MotionPlanningSkill::CreateSkill() {
   return std::make_unique<MotionPlanningSkill>();
 }
 
-absl::StatusOr<std::unique_ptr<google::protobuf::Message>> MotionPlanningSkill::Execute(
-    const intrinsic::skills::ExecuteRequest& request,
-    intrinsic::skills::ExecuteContext& context) {
-
+absl::StatusOr<std::unique_ptr<google::protobuf::Message>>
+MotionPlanningSkill::Execute(const intrinsic::skills::ExecuteRequest& request,
+                             intrinsic::skills::ExecuteContext& context) {
   (void)context;
   INTR_ASSIGN_OR_RETURN(auto params, request.params<MotionPlanningParams>());
 
@@ -103,19 +104,23 @@ absl::StatusOr<std::unique_ptr<google::protobuf::Message>> MotionPlanningSkill::
   auto call_res = client->CallGetMotionPlan(service_name, req, timeout_ms);
 
   if (!call_res.ok()) {
-    LOG(ERROR) << "Motion planning service call failed: " << call_res.status().message();
+    LOG(ERROR) << "Motion planning service call failed: "
+               << call_res.status().message();
     return call_res.status();
   }
 
   auto response_proto = std::make_unique<MotionPlanningResult>();
 
   auto response = call_res.value();
-  bool success = (response->motion_plan_response.error_code.val == moveit_msgs::msg::MoveItErrorCodes::SUCCESS);
+  bool success = (response->motion_plan_response.error_code.val ==
+                  moveit_msgs::msg::MoveItErrorCodes::SUCCESS);
   response_proto->set_success(success);
-  response_proto->set_planning_time(response->motion_plan_response.planning_time);
+  response_proto->set_planning_time(
+      response->motion_plan_response.planning_time);
 
   if (success) {
-    const auto& joint_trajectory = response->motion_plan_response.trajectory.joint_trajectory;
+    const auto& joint_trajectory =
+        response->motion_plan_response.trajectory.joint_trajectory;
     for (const auto& point : joint_trajectory.points) {
       // 1. Populate geometric trajectory (positions only)
       auto* geometric_vec = response_proto->add_geometric_trajectory();
@@ -123,8 +128,10 @@ absl::StatusOr<std::unique_ptr<google::protobuf::Message>> MotionPlanningSkill::
         geometric_vec->add_joints(pos);
       }
 
-      // 2. Populate parameterized trajectory (JointStatePVA: position, velocity, acceleration)
-      auto* parameterized_state = response_proto->add_parameterized_trajectory();
+      // 2. Populate parameterized trajectory (JointStatePVA: position,
+      // velocity, acceleration)
+      auto* parameterized_state =
+          response_proto->add_parameterized_trajectory();
       for (double pos : point.positions) {
         parameterized_state->add_position(pos);
       }
@@ -137,7 +144,8 @@ absl::StatusOr<std::unique_ptr<google::protobuf::Message>> MotionPlanningSkill::
     }
   }
 
-  LOG(INFO) << "Motion planning call completed. Success: " << (success ? "yes" : "no")
+  LOG(INFO) << "Motion planning call completed. Success: "
+            << (success ? "yes" : "no")
             << ", Time: " << response->motion_plan_response.planning_time << "s"
             << ", Waypoints: " << response_proto->geometric_trajectory_size();
 

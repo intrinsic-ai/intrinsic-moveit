@@ -216,6 +216,7 @@ class TestGraspPlanningIntegration(unittest.TestCase):
         plan_grasps_req.end_effector_group = 'hand'
         plan_grasps_req.tool_frame = 'hande_tcp'
         plan_grasps_req.planning_timeout_sec = 10.0
+        plan_grasps_req.gripper_motion_duration_sec = 0.75
         plan_grasps_req.retract_dist_m = 0.1
         plan_grasps_req.surfaces = [0, 1, 2, 3, 4, 5]
         plan_grasps_req.num_rotations = 4
@@ -245,8 +246,23 @@ class TestGraspPlanningIntegration(unittest.TestCase):
             'Number of grasps and pre-grasp poses should match',
         )
 
+        self.assertEqual(
+            len(plan_grasps_resp.grasps),
+            len(plan_grasps_resp.grasp_ik_solutions),
+            'Number of grasps and grasp IK solutions should match',
+        )
+
+        self.assertEqual(
+            len(plan_grasps_resp.grasps),
+            len(plan_grasps_resp.pregrasp_ik_solutions),
+            'Number of grasps and pregrasp IK solutions should match',
+        )
+
         # Validate candidate posture structures
-        expected_joints = [
+        expected_gripper_joints = ['hande_left_finger_joint']
+
+        first_grasp = plan_grasps_resp.grasps[0]
+        expected_arm_joints = [
             'shoulder_pan_joint',
             'shoulder_lift_joint',
             'elbow_joint',
@@ -254,16 +270,43 @@ class TestGraspPlanningIntegration(unittest.TestCase):
             'wrist_2_joint',
             'wrist_3_joint',
         ]
-        first_grasp = plan_grasps_resp.grasps[0]
+
+        first_grasp_ik = plan_grasps_resp.grasp_ik_solutions[0]
+        first_pregrasp_ik = plan_grasps_resp.pregrasp_ik_solutions[0]
+
+        self.assertEqual(
+            first_grasp_ik.name,
+            expected_arm_joints,
+            'Grasp IK joint names do not match expected manipulator joints',
+        )
+
+        self.assertEqual(
+            first_pregrasp_ik.name,
+            expected_arm_joints,
+            'Pregrasp IK joint names do not match expected manipulator joints',
+        )
+
+        self.assertEqual(
+            len(first_grasp_ik.position),
+            len(expected_arm_joints),
+            'Grasp IK should contain one position per manipulator joint',
+        )
+
+        self.assertEqual(
+            len(first_pregrasp_ik.position),
+            len(expected_arm_joints),
+            'Pregrasp IK should contain one position per manipulator joint',
+        )
+
         self.assertEqual(
             first_grasp.grasp_posture.joint_names,
-            expected_joints,
-            'Grasp posture joint names do not match expected manipulator joints',
+            expected_gripper_joints,
+            'Grasp posture joint names do not match expected gripper joints',
         )
         self.assertEqual(
             first_grasp.pre_grasp_posture.joint_names,
-            expected_joints,
-            'Pre-grasp posture joint names do not match expected manipulator joints',
+            expected_gripper_joints,
+            'Pre-grasp posture joint names do not match expected gripper joints',
         )
         self.assertGreater(
             len(first_grasp.grasp_posture.points),
@@ -275,6 +318,49 @@ class TestGraspPlanningIntegration(unittest.TestCase):
             0,
             'Pre-grasp posture should contain trajectory points',
         )
+        self.assertEqual(
+            len(first_grasp.pre_grasp_posture.points[0].positions),
+            1,
+            'Pre-grasp posture should contain one gripper joint position',
+        )
+
+        self.assertEqual(
+            len(first_grasp.grasp_posture.points[0].positions),
+            1,
+            'Grasp posture should contain one gripper joint position',
+        )
+
+        self.assertAlmostEqual(
+            first_grasp.pre_grasp_posture.points[0].positions[0],
+            -0.001,
+            places=6,
+            msg='Pre-grasp posture should use the SRDF open position',
+        )
+
+        self.assertAlmostEqual(
+            first_grasp.grasp_posture.points[0].positions[0],
+            0.025,
+            places=6,
+            msg='Grasp posture should use the SRDF closed position',
+        )
+
+        pre_grasp_duration = first_grasp.pre_grasp_posture.points[0].time_from_start
+        grasp_duration = first_grasp.grasp_posture.points[0].time_from_start
+
+        self.assertAlmostEqual(
+            pre_grasp_duration.sec + pre_grasp_duration.nanosec / 1e9,
+            0.75,
+            places=6,
+            msg='Pre-grasp posture should use the configured motion duration',
+        )
+
+        self.assertAlmostEqual(
+            grasp_duration.sec + grasp_duration.nanosec / 1e9,
+            0.75,
+            places=6,
+            msg='Grasp posture should use the configured motion duration',
+        )
+
         self.assertGreater(
             first_grasp.pre_grasp_approach.desired_distance,
             0.0,

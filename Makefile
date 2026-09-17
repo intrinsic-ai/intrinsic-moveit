@@ -17,15 +17,31 @@ export
 
 CACHE_FLAGS ?=
 
-.PHONY: clean check-intrinsic-env \
-	moveit_flowstate_ros_bridge moveit_flowstate_ros_bridge_proto_desc moveit_flowstate_ros_bridge.bundle.tar \
-	install_moveit_flowstate_ros_bridge add_moveit_flowstate_ros_bridge delete_moveit_flowstate_ros_bridge uninstall_moveit_flowstate_ros_bridge \
-	install_bridge_service add_bridge_service delete_bridge_service uninstall_bridge_service \
+.PHONY: clean check-intrinsic-env format format-check \
 	moveit_planning_service moveit_planning_service_proto_desc moveit_planning_service.bundle.tar \
 	install_moveit_planning_service add_moveit_planning_service delete_moveit_planning_service uninstall_moveit_planning_service \
 	moveit_plan_motion_skill moveit_plan_motion_skill_proto_desc moveit_plan_motion_skill.bundle.tar install_moveit_plan_motion_skill uninstall_moveit_plan_motion_skill \
 	moveit_plan_grasp_skill moveit_plan_grasp_skill_proto_desc moveit_plan_grasp_skill.bundle.tar install_moveit_plan_grasp_skill uninstall_moveit_plan_grasp_skill \
 	install_motion_planning_skill uninstall_motion_planning_skill install_grasp_planning_skill uninstall_grasp_planning_skill
+
+FORMAT_EXCLUDED_DIRS := build install log .git third_party
+FORMAT_FILE_EXTENSIONS := "*.cpp" "*.hpp" "*.h" "*.cc" "*.proto"
+
+FORMAT_EXCLUDED_DIRS_EXPRESSION := \
+	$(foreach dir,$(FORMAT_EXCLUDED_DIRS),-name $(dir) -o) -false
+
+FORMAT_FILE_EXTENSIONS_EXPRESSION := \
+	$(foreach extension,$(FORMAT_FILE_EXTENSIONS),-name $(extension) -o) -false
+
+FIND_FORMAT_SOURCES := find . \
+	-type d \( $(FORMAT_EXCLUDED_DIRS_EXPRESSION) \) -prune \
+	-o -type f \( $(FORMAT_FILE_EXTENSIONS_EXPRESSION) \) -print0
+
+format:
+	@$(FIND_FORMAT_SOURCES) | xargs -0 -r clang-format -i
+
+format-check:
+	@$(FIND_FORMAT_SOURCES) | xargs -0 -r clang-format --dry-run --Werror
 
 check-intrinsic-env:
 ifndef SDK_VERSION
@@ -69,73 +85,11 @@ docker_setup:
 		docker buildx create --name="container-builder" --driver="docker-container"
 
 # ==============================================================================
-# Service Targets
+# ==============================================================================
+# Service Targets (Consolidated: moveit_planning_service)
 # ==============================================================================
 
-# MoveIt Flowstate ROS Bridge Service
-moveit_flowstate_ros_bridge: docker_setup check-intrinsic-env
-	docker buildx build $(CACHE_FLAGS) -t moveit_flowstate_ros_bridge:latest \
-		--builder="container-builder" \
-		--output="\
-			type=docker,\
-			dest=./images/moveit_flowstate_ros_bridge.tar,\
-			compression=zstd,\
-			push=false,\
-			name=moveit_flowstate_ros_bridge:latest" \
-		--build-arg ROS_PACKAGE_NAME_ARG=moveit_flowstate_ros_bridge \
-		--build-arg ROS_DISTRO=${ROS_DISTRO} \
-		--file ./Dockerfile.service \
-		.
-
-moveit_flowstate_ros_bridge_proto_desc: moveit_flowstate_ros_bridge
-	docker load -i ./images/moveit_flowstate_ros_bridge.tar
-	docker create --name temp_container_bridge "moveit_flowstate_ros_bridge:latest"
-	docker cp "temp_container_bridge:/opt/service_workspace/install/share/moveit_flowstate_ros_bridge/moveit_flowstate_ros_bridge_protos.desc" "./images/moveit_flowstate_ros_bridge_protos.desc"
-	docker cp "temp_container_bridge:/opt/intrinsic/intrinsic_sdk_cmake/install/share/intrinsic_sdk_cmake/intrinsic_proto.desc" "./images/intrinsic_proto.desc"
-	docker rm -f "temp_container_bridge"
-	docker rmi "moveit_flowstate_ros_bridge:latest"
-
-moveit_flowstate_ros_bridge.bundle.tar: moveit_flowstate_ros_bridge_proto_desc download_inbuild_and_inctl
-	./bin/inbuild service bundle \
-		--manifest ./moveit_flowstate_ros_bridge/moveit_flowstate_ros_bridge.manifest.textproto \
-		--oci_image ./images/moveit_flowstate_ros_bridge.tar \
-		--default_config ./moveit_flowstate_ros_bridge/moveit_flowstate_ros_bridge_default_config.pbtxt \
-		--file_descriptor_set ./images/moveit_flowstate_ros_bridge_protos.desc \
-		--file_descriptor_set ./images/intrinsic_proto.desc \
-		--output ./images/moveit_flowstate_ros_bridge.bundle.tar
-
-# Bridge Service Installation Targets
-install_moveit_flowstate_ros_bridge: check-intrinsic-env moveit_flowstate_ros_bridge.bundle.tar
-	./bin/inctl asset install \
-		--org ${INTRINSIC_ORGANIZATION} \
-		--cluster ${INTRINSIC_CLUSTER} \
-		./images/moveit_flowstate_ros_bridge.bundle.tar
-
-add_moveit_flowstate_ros_bridge: check-intrinsic-env
-	./bin/inctl service add \
-		--org ${INTRINSIC_ORGANIZATION} \
-		--cluster ${INTRINSIC_CLUSTER} \
-		ai.intrinsic.moveit_flowstate_ros_bridge --name=moveit_flowstate_ros_bridge
-
-delete_moveit_flowstate_ros_bridge: check-intrinsic-env
-	./bin/inctl service delete \
-		--org ${INTRINSIC_ORGANIZATION} \
-		--cluster ${INTRINSIC_CLUSTER} \
-		moveit_flowstate_ros_bridge
-
-uninstall_moveit_flowstate_ros_bridge: check-intrinsic-env
-	./bin/inctl asset uninstall \
-		--org ${INTRINSIC_ORGANIZATION} \
-		--cluster ${INTRINSIC_CLUSTER} \
-		ai.intrinsic.moveit_flowstate_ros_bridge
-
-# Backward-compatibility aliases for bridge service
-install_bridge_service: install_moveit_flowstate_ros_bridge
-add_bridge_service: add_moveit_flowstate_ros_bridge
-delete_bridge_service: delete_moveit_flowstate_ros_bridge
-uninstall_bridge_service: uninstall_moveit_flowstate_ros_bridge
-
-# MoveIt Planning Service
+# MoveIt Planning Service (Unified planning, scene bridge, and TF streaming)
 moveit_planning_service: docker_setup check-intrinsic-env
 	docker buildx build $(CACHE_FLAGS) -t moveit_planning_service:latest \
 		--builder="container-builder" \

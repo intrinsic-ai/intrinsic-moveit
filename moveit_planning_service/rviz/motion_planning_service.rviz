@@ -104,7 +104,7 @@ Visualization Manager:
             Show Axes: false
             Show Trail: false
             Value: true
-          camera_mount_cam_mount_link:
+          orbbec_camera_link:
             Alpha: 1
             Show Axes: false
             Show Trail: false
@@ -198,7 +198,7 @@ Visualization Manager:
       Planning Scene Topic: monitored_planning_scene
       Robot Description: robot_description
       Scene Geometry:
-        Scene Alpha: 1
+        Scene Alpha: 0.5
         Scene Color: 50; 230; 50
         Scene Display Time: 0.009999999776482582
         Show Scene Geometry: true
@@ -226,7 +226,7 @@ Visualization Manager:
             Show Axes: false
             Show Trail: false
             Value: true
-          camera_mount_cam_mount_link:
+          orbbec_camera_link:
             Alpha: 1
             Show Axes: false
             Show Trail: false
@@ -323,7 +323,7 @@ Visualization Manager:
             Show Axes: false
             Show Trail: false
             Value: true
-          camera_mount_cam_mount_link:
+          orbbec_camera_link:
             Alpha: 1
             Show Axes: false
             Show Trail: false

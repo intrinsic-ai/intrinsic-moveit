@@ -14,21 +14,21 @@
 
 #pragma once
 
-#include <optional>
 #include <Eigen/Geometry>
 #include <moveit_msgs/msg/collision_object.hpp>
+#include <optional>
 
-
-namespace moveit_planning_service{
-    struct ObjectBoundingBox {
-        Eigen::Vector3d dimensions;
-        Eigen::Isometry3d center_transform;
-    };
-    /**
-     * Extracts a box representation from a collision object.
-     *
-     * BOX primitives preserve their dimensions and pose. If no BOX primitive is
-     * available, a bounding box is calculated from all mesh vertices.
-     */
-    std::optional<ObjectBoundingBox> computeObjectBoundingBox(const moveit_msgs::msg::CollisionObject& object);
-}   // namespace moveit_planning_service
+namespace moveit_planning_service {
+struct ObjectBoundingBox {
+  Eigen::Vector3d dimensions;
+  Eigen::Isometry3d center_transform;
+};
+/**
+ * Extracts a box representation from a collision object.
+ *
+ * BOX primitives preserve their dimensions and pose. If no BOX primitive is
+ * available, a bounding box is calculated from all mesh vertices.
+ */
+std::optional<ObjectBoundingBox> computeObjectBoundingBox(
+    const moveit_msgs::msg::CollisionObject& object);
+}  // namespace moveit_planning_service

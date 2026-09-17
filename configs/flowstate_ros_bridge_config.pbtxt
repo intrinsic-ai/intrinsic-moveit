@@ -1,0 +1,52 @@
+# Copyright 2026 Intrinsic Innovation LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# proto-file: flowstate_ros_bridge.proto
+# proto-message: FlowstateRosBridgeConfig
+# Corresponds to the message definition in flowstate_ros_bridge.proto
+[type.googleapis.com/intrinsic.FlowstateRosBridgeConfig] {
+  workcell_id: ""
+  executive_service_address: "istio-ingressgateway.app-ingress.svc.cluster.local:80"
+  skill_registry_address: "istio-ingressgateway.app-ingress.svc.cluster.local:80"
+  solution_service_address: "istio-ingressgateway.app-ingress.svc.cluster.local:80"
+  world_service_address: "istio-ingressgateway.app-ingress.svc.cluster.local:80"
+  geometry_service_address: "istio-ingressgateway.app-ingress.svc.cluster.local:80"
+  flowstate_zenoh_router_address: "tcp/zenoh-router.app-intrinsic-base.svc.cluster.local:7447"
+  external_zenoh_router_address: "tcp/zenoh-router.app-intrinsic-base.svc.cluster.local:7447"
+  bridge_plugins: [
+    "flowstate_ros_bridge::WorldBridge",
+    "flowstate_ros_bridge::ExecutiveBridge"
+  ]
+  executive_deadline_seconds: 5
+  executive_update_rate_millis: 1000
+  strip_flowstate_tf_prefix: []
+  sensors: {
+    enable_robot_joint_state_topic: true
+    enable_force_torque_topic: true
+    robot_joint_state_topic: "/joint_states"
+    force_torque_topic: "/fts_broadcaster/wrench"
+    robot_base_frame_id: "ur_module/base_link"
+    force_torque_sensor_frame_id: "force_torque_sensor/force_torque_sensor/AtiForceTorqueSensor"
+    robot_controller_instance: "icon"
+    throttle_robot_state_topic: false
+    override_joint_names: [
+      "shoulder_pan_joint",
+      "shoulder_lift_joint",
+      "elbow_joint",
+      "wrist_1_joint",
+      "wrist_2_joint",
+      "wrist_3_joint"
+    ]
+  }
+}

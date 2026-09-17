@@ -1,5 +1,6 @@
 images
 bin
+configs/*.binarypb
 .env
 
 build/

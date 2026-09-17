@@ -31,8 +31,8 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 # 3D Perception Sensors Configuration
-# Headless Flowstate environments synchronize collision objects and meshes directly via
-# MoveItSceneBridge and standard ROS 2 collision topics (/collision_object, /planning_scene).
+# Headless Intrinsic Core environments synchronize collision objects and meshes directly via
+# MoveitSceneSynchronizer and standard ROS 2 collision topics (/collision_object, /planning_scene).
 # Disabling local camera octomap updaters prevents OpenGL/freeglut initialization failures in headless containers.
 
 sensors: []
