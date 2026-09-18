@@ -306,8 +306,7 @@ GraspPlanningSkill::Execute(const intrinsic::skills::ExecuteRequest& request,
   const auto goal = CreatePlanGraspsGoal(params);
 
   LOG(INFO) << "Calling grasp planning action for " << goal.candidates.size()
-            << " candidate objects"
-            << " (plan_id: " << plan_id
+            << " candidate objects" << " (plan_id: " << plan_id
             << ", max_grasps: " << goal.max_num_grasps << ")";
 
   auto client = std::make_shared<GraspPlanningRosClient>();

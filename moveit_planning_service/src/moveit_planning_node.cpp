@@ -646,8 +646,8 @@ int main(int argc, char** argv) {
   std::thread planning_scene_executor_thread(
       [planning_scene_executor]() { planning_scene_executor->spin(); });
 
-  // Dedicated callback group for planning endpoints (automatically added to main
-  // executor)
+  // Dedicated callback group for planning endpoints (automatically added to
+  // main executor)
   auto planning_services_callback_group =
       node->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 

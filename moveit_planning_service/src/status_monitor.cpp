@@ -26,8 +26,8 @@
 #include "moveit_msgs/srv/get_motion_plan.hpp"
 #include "moveit_msgs/srv/get_planning_scene.hpp"
 #include "moveit_planning_interfaces/action/plan_grasps.hpp"
-#include "rclcpp_action/rclcpp_action.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
 using namespace std::chrono_literals;
@@ -71,10 +71,8 @@ MoveItStatusClient::MoveItStatusClient(const rclcpp::NodeOptions& options)
       this->create_client<std_srvs::srv::Trigger>(kSyncCollisionObjectsTopic);
   motion_plan_client_ =
       this->create_client<moveit_msgs::srv::GetMotionPlan>(kMotionPlanTopic);
-  grasp_plan_client_ =
-      rclcpp_action::create_client<
-          moveit_planning_interfaces::action::PlanGrasps>(
-          this, kGraspPlanTopic);
+  grasp_plan_client_ = rclcpp_action::create_client<
+      moveit_planning_interfaces::action::PlanGrasps>(this, kGraspPlanTopic);
 
   joint_state_sub_ = this->create_subscription<sensor_msgs::msg::JointState>(
       "/joint_states", rclcpp::SystemDefaultsQoS(),

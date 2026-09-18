@@ -126,11 +126,11 @@ TEST_F(GraspPlanningPipelineTest, PlanGraspsRejectsEmptyTargetId) {
 
   moveit_planning_interfaces::action::PlanGrasps::Result result;
 
-  pipeline_->PlanGrasps(
-      goal, candidate, 0, result, std::chrono::milliseconds(50));
+  pipeline_->PlanGrasps(goal, candidate, 0, result,
+                        std::chrono::milliseconds(50));
 
   EXPECT_EQ(result.error_code.val,
-                moveit_msgs::msg::MoveItErrorCodes::INVALID_OBJECT_NAME);
+            moveit_msgs::msg::MoveItErrorCodes::INVALID_OBJECT_NAME);
   EXPECT_TRUE(result.ranked_grasps.empty());
 }
 
@@ -140,7 +140,8 @@ TEST_F(GraspPlanningPipelineTest, GetRobotModelReturnsNulloptWhenUnconfigured) {
   EXPECT_EQ(pipeline_->GetRobotModel(), nullptr);
 }
 
-TEST_F(GraspPlanningPipelineTest, PlanGraspsFailsGracefullyWhenRobotModelUnavailable) {
+TEST_F(GraspPlanningPipelineTest,
+       PlanGraspsFailsGracefullyWhenRobotModelUnavailable) {
   moveit_planning_interfaces::action::PlanGrasps::Goal goal;
   goal.group_name = "arm";
 
@@ -152,11 +153,10 @@ TEST_F(GraspPlanningPipelineTest, PlanGraspsFailsGracefullyWhenRobotModelUnavail
 
   moveit_planning_interfaces::action::PlanGrasps::Result result;
 
-  pipeline_->PlanGrasps(
-      goal, candidate, 0, result, std::chrono::milliseconds(50));
+  pipeline_->PlanGrasps(goal, candidate, 0, result,
+                        std::chrono::milliseconds(50));
 
-  EXPECT_EQ(result.error_code.val,
-            moveit_msgs::msg::MoveItErrorCodes::FAILURE);
+  EXPECT_EQ(result.error_code.val, moveit_msgs::msg::MoveItErrorCodes::FAILURE);
   EXPECT_TRUE(result.ranked_grasps.empty());
 }
 

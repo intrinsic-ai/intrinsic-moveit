@@ -17,8 +17,8 @@
 #include "moveit_msgs/srv/get_motion_plan.hpp"
 #include "moveit_msgs/srv/get_planning_scene.hpp"
 #include "moveit_planning_interfaces/action/plan_grasps.hpp"
-#include "rclcpp_action/rclcpp_action.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "std_srvs/srv/trigger.hpp"
 #include "tf2_ros/buffer.hpp"
@@ -57,10 +57,10 @@ class MoveItStatusClient : public rclcpp::Node {
   rclcpp::Client<moveit_msgs::srv::GetPlanningScene>::SharedPtr
       get_scene_client_;
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr bridge_client_;
-  rclcpp::Client<moveit_msgs::srv::GetMotionPlan>::SharedPtr motion_plan_client_;
-  rclcpp_action::Client<
-      moveit_planning_interfaces::action::PlanGrasps>::SharedPtr
-      grasp_plan_client_;
+  rclcpp::Client<moveit_msgs::srv::GetMotionPlan>::SharedPtr
+      motion_plan_client_;
+  rclcpp_action::Client<moveit_planning_interfaces::action::PlanGrasps>::
+      SharedPtr grasp_plan_client_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr
       joint_state_sub_;
 
