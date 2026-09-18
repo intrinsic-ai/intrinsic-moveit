@@ -65,8 +65,8 @@ TEST(MoveItPlanGraspSkillTest, DefaultValuesAppliedCorrectly) {
 
   EXPECT_EQ(goal.group_name, "ur_manipulator");
   EXPECT_EQ(goal.end_effector_group, "hand");
-  EXPECT_DOUBLE_EQ(goal.planning_timeout_sec, 10.0);
-  EXPECT_DOUBLE_EQ(goal.retract_dist_m, 0.1);
+  EXPECT_DOUBLE_EQ(goal.planning_timeout_sec, 15.0);
+  EXPECT_DOUBLE_EQ(goal.retract_dist_m, 0.05);
   EXPECT_DOUBLE_EQ(goal.gripper_motion_duration_sec, 0.5);
   EXPECT_EQ(goal.max_num_grasps, 1);
   ASSERT_EQ(goal.candidates.size(), 1u);

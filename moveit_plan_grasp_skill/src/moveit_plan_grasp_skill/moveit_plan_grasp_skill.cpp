@@ -55,10 +55,10 @@ moveit_planning_interfaces::action::PlanGrasps::Goal CreatePlanGraspsGoal(
           ? params.end_effector_group()
           : "hand";
 
-  // Timeout: default to 10000.0 ms (10.0 s)
+  // Timeout: default to 15000.0 ms (15.0 s)
   double timeout_ms = (params.has_timeout_ms() && params.timeout_ms() > 0.0)
                           ? params.timeout_ms()
-                          : 10000.0;
+                          : 15000.0;
   goal.planning_timeout_sec = timeout_ms / 1000.0;
 
   goal.gripper_motion_duration_sec =
@@ -291,7 +291,7 @@ GraspPlanningSkill::Execute(const intrinsic::skills::ExecuteRequest& request,
   const double timeout_ms =
       (params.has_timeout_ms() && params.timeout_ms() > 0.0)
           ? params.timeout_ms()
-          : 10000.0;
+          : 15000.0;
 
   // Resolve plan_id
   const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(

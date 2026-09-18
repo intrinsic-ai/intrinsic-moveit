@@ -46,14 +46,14 @@ message GraspPlanningParams {
   optional intrinsic_proto.world.TransformNodeReference output_pregrasp_frame =
       5;
 
-  // The distance between grasp and pregrasp frames in meters. Defaults to 0.1
-  // (10cm).
+  // The distance between grasp and pregrasp frames in meters. Defaults to 0.05
+  // (5cm).
   optional double retract_dist_m = 6;
 
   // The MoveIt planning group used. Defaults to "ur_manipulator".
   optional string group_name = 7;
 
-  // Timeout for the planning request in milliseconds. Defaults to 10000.0 (10
+  // Timeout for the planning request in milliseconds. Defaults to 15000.0 (15
   // seconds).
   optional double timeout_ms = 8;
 

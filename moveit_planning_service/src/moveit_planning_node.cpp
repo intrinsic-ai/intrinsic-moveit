@@ -182,7 +182,15 @@ void handle_plan_grasps_accepted(
   std::thread([goal_handle, grasp_pipeline, scene_synchronizer,
                service_call_timeout]() {
     if (scene_synchronizer) {
-      scene_synchronizer->fetchAndSynchronizeCollisionObjects(std::nullopt);
+      const auto sync_status =
+          scene_synchronizer->fetchAndSynchronizeCollisionObjects(std::nullopt);
+
+      if (!sync_status.ok()) {
+        RCLCPP_WARN(
+            rclcpp::get_logger("moveit_planning_service"),
+            "Failed to synchronize collision objects before planning: %s",
+            sync_status.message().data());
+      }
     }
 
     execute_plan_grasps_action(goal_handle, grasp_pipeline,
@@ -658,7 +666,16 @@ int main(int argc, char** argv) {
               request,
           std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Response> response) {
         if (scene_synchronizer) {
-          scene_synchronizer->fetchAndSynchronizeCollisionObjects(std::nullopt);
+          const auto sync_status =
+              scene_synchronizer->fetchAndSynchronizeCollisionObjects(
+                  std::nullopt);
+
+          if (!sync_status.ok()) {
+            RCLCPP_WARN(
+                rclcpp::get_logger("moveit_planning_service"),
+                "Failed to synchronize collision objects before planning: %s",
+                sync_status.message().data());
+          }
         }
         handle_motion_plan_request(scene_ready, request, response);
       },
