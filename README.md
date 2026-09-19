@@ -268,3 +268,34 @@ sudo ln -s /usr/lib/x86_64-linux-gnu/libxml2.so.16 /usr/lib/x86_64-linux-gnu/lib
 * **Skills to use actions**: interaction between skills and services should be done via ROS actions, instead of services.
 * **Pixi workspace migration**: better dependency control and faster build times.
 * **Abstract hardware definitions**: to better support different hardware configurations.
+
+---
+
+## Documentation and related repositories
+
+* [**Intrinsic Developer Community**](https://developer.intrinsic.ai): Complete guides, interactive tutorials, and API references.
+
+---
+
+## Contributing and community
+
+Contributions are welcome! Please review:
+
+* [CONTRIBUTING.md](CONTRIBUTING.md): Details on signing the Google Contributor License Agreement (CLA), community guidelines, C++20 coding standards, and pull request workflows.  
+* [SECURITY.md](SECURITY.md): Instructions for reporting security vulnerabilities.
+
+---
+
+## License
+
+This project is licensed under the [Apache 2.0 License](LICENSE).
+
+---
+
+> **Disclaimer**: This is not an officially supported Google product.
+
+---
+
+### Trademark notice
+
+"Intrinsic" and "Intrinsic Core" are trademarks of Intrinsic Innovation LLC. See [TRADEMARK.md](TRADEMARK.md) for usage guidelines.
