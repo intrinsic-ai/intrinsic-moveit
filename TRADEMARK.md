@@ -4,11 +4,11 @@
 
 &nbsp;
 
-The source code in this repository is licensed under the [Apache 2.0 License](http://LICENSE). The Apache 2.0 license does not grant permission to use Intrinsic trademarks or logos.
+The source code in this repository is licensed under the [Apache 2.0 License](LICENSE). The Apache 2.0 license does not grant permission to use Intrinsic trademarks or logos.
 
 &nbsp;
 
-Use of the "Intrinsic" and "Intrinsic Core" names, wordmarks, and logos is governed by the [Intrinsic Brand Guidelines](http://www.intrinsic.ai/intrinsic-core/brand-guidelines).
+Use of the "Intrinsic" and "Intrinsic Core" names, wordmarks, and logos is governed by the [Intrinsic Brand Guidelines](https://www.intrinsic.ai/developer-brand-guidelines).
 
 &nbsp;
 
