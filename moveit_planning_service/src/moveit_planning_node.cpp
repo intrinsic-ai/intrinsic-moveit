@@ -54,6 +54,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <tf2_ros/buffer.hpp>
+#include <tf2_ros/transform_listener.hpp>
 
 #include "absl/flags/flag.h"
 #include "flowstate_ros_bridge/world.hpp"
@@ -218,13 +220,14 @@ void handle_motion_plan_request(
     const rclcpp::Node::SharedPtr &node,
     const std::shared_ptr<std::atomic<bool>> &scene_ready,
     PlanningSceneClient::SharedPtr planning_scene_client,
+    const std::shared_ptr<tf2_ros::Buffer> &tf_buffer,
     const std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Request> request,
     std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Response> response) {
-  
+
   RCLCPP_WARN(
         node->get_logger(),
         "!!!!!!!!!!!! ENTERING");
-            
+
   // Don't bother to do anything is the scene is not ready yet
   if (!scene_ready->load()) {
     RCLCPP_WARN(
@@ -297,7 +300,7 @@ void handle_motion_plan_request(
       node->get_logger(),
       "!!!!!!!!!!!! About to get planning scene");
 
- 
+
   auto future = planning_scene_client->async_send_request(scene_req);
   moveit_msgs::srv::GetPlanningScene::Response::SharedPtr scene_resp;
   if (future.wait_for(timeout) == std::future_status::ready) {
@@ -356,7 +359,7 @@ void handle_motion_plan_request(
   planning_scene->setPlanningSceneMsg(scene_resp->scene);
 
   // Let's find our frames in the planning scene.
-  // But we should check if the target_frame is actually the name of the frame 
+  // But we should check if the target_frame is actually the name of the frame
   // in the planning scene, maybe we need to resolve it.
   std::string resolved_target_frame = target_frame;
   if (!planning_scene->knowsFrameTransform(resolved_target_frame)) {
@@ -367,29 +370,41 @@ void handle_motion_plan_request(
     resolved_target_frame =
         resolve_target_object_id(scene_object_ids, target_frame);
 
-    if (!planning_scene->knowsFrameTransform(resolved_target_frame)) {
-      RCLCPP_ERROR(
-          node->get_logger(),
-          "Planning scene does not know target frame: '%s' (originally '%s')",
-          resolved_target_frame.c_str(), target_frame.c_str());
-      response->motion_plan_response.error_code.val =
-          moveit_msgs::msg::MoveItErrorCodes::FRAME_TRANSFORM_FAILURE;
-      return;
-    }
     RCLCPP_INFO(node->get_logger(), "Resolved target frame '%s' to '%s'",
                 target_frame.c_str(), resolved_target_frame.c_str());
   }
-  // Know that we know the name, let's get the transform...
-  Eigen::Isometry3d world_t_target =
-      planning_scene->getFrameTransform(resolved_target_frame);
-  // Get a pose in the model frame for the target frame, an call it 'target_pose'
+
+  // Get the target pose from the TF tree instead of the planning scene
   geometry_msgs::msg::PoseStamped target_pose_stamped;
-  target_pose_stamped.header.frame_id = robot_model->getModelFrame();
-  target_pose_stamped.header.stamp = node->now();
-  target_pose_stamped.pose = isometry_to_pose(world_t_target);
+  try {
+    // Lookup transform from the model frame (planning frame) to the resolved target frame.
+    // Use a small timeout (e.g., 2.0s) so it can wait if needed, but not block forever.
+    auto transform = tf_buffer->lookupTransform(
+        robot_model->getModelFrame(), resolved_target_frame, tf2::TimePointZero,
+        std::chrono::seconds(2));
+
+    target_pose_stamped.header = transform.header;
+    target_pose_stamped.pose.position.x = transform.transform.translation.x;
+    target_pose_stamped.pose.position.y = transform.transform.translation.y;
+    target_pose_stamped.pose.position.z = transform.transform.translation.z;
+    target_pose_stamped.pose.orientation = transform.transform.rotation;
+  } catch (const std::exception &ex) {
+    RCLCPP_ERROR(
+        node->get_logger(),
+        "TF tree does not know transform from '%s' to target frame: '%s' (originally '%s'): %s",
+        robot_model->getModelFrame().c_str(), resolved_target_frame.c_str(),
+        target_frame.c_str(), ex.what());
+    response->motion_plan_response.error_code.val =
+        moveit_msgs::msg::MoveItErrorCodes::FRAME_TRANSFORM_FAILURE;
+    return;
+  }
 
   // Apply custom start joint state if provided
   if (!request->motion_plan_request.start_state.joint_state.position.empty()) {
+
+    RCLCPP_WARN(
+      node->get_logger(),
+      "!!!!!!!!!!!! CUSTOM JOINT STATE");
     const auto &custom_positions =
         request->motion_plan_request.start_state.joint_state.position;
     if (custom_positions.size() != arm_active_joint_names.size()) {
@@ -699,6 +714,9 @@ int main(int argc, char **argv) {
 
   auto node = rclcpp::Node::make_shared("moveit_planning_node");
 
+  auto tf_buffer = std::make_shared<tf2_ros::Buffer>(node->get_clock());
+  auto tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
+
   rcl_interfaces::msg::ParameterDescriptor double_desc;
   double_desc.dynamic_typing = true;
 
@@ -930,14 +948,14 @@ int main(int argc, char **argv) {
 
   auto motion_service = node->create_service<moveit_msgs::srv::GetMotionPlan>(
       "motion_planning/get_motion_plan",
-      [node, planning_scene_client, scene_synchronizer, scene_ready](
+      [node, planning_scene_client, scene_synchronizer, scene_ready, tf_buffer](
           const std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Request>
               request,
           std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Response> response) {
         if (scene_synchronizer) {
           scene_synchronizer->fetchAndSynchronizeCollisionObjects(std::nullopt);
         }
-        handle_motion_plan_request(node, scene_ready, planning_scene_client, request, response);
+        handle_motion_plan_request(node, scene_ready, planning_scene_client, tf_buffer, request, response);
       },
       rclcpp::ServicesQoS(), planning_services_callback_group);
 

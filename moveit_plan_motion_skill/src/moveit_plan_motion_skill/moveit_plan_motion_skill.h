@@ -33,6 +33,10 @@ class MotionPlanningSkill final : public intrinsic::skills::SkillInterface {
   absl::StatusOr<std::unique_ptr<google::protobuf::Message>> Execute(
       const intrinsic::skills::ExecuteRequest& request,
       intrinsic::skills::ExecuteContext& context) override;
+
+  absl::StatusOr<std::unique_ptr<google::protobuf::Message>> Preview(
+      const intrinsic::skills::PreviewRequest& request,
+      intrinsic::skills::PreviewContext& context) override;
 };
 
 std::shared_ptr<moveit_msgs::srv::GetMotionPlan::Request> CreateMotionPlanRequest(

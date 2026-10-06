@@ -25,6 +25,7 @@
 #include "absl/strings/str_cat.h"
 #include "google/protobuf/message.h"
 #include "intrinsic/skills/cc/skill_utils.h"
+#include "intrinsic/skills/cc/skill_interface_utils.h"
 #include "intrinsic/util/status/status_macros.h"
 #include "moveit_msgs/msg/move_it_error_codes.hpp"
 #include "moveit_msgs/srv/get_motion_plan.hpp"
@@ -113,9 +114,16 @@ std::unique_ptr<intrinsic::skills::SkillInterface> MotionPlanningSkill::CreateSk
   return std::make_unique<MotionPlanningSkill>();
 }
 
-absl::StatusOr<std::unique_ptr<google::protobuf::Message>>
-MotionPlanningSkill::Execute(const intrinsic::skills::ExecuteRequest& request,
-                             intrinsic::skills::ExecuteContext& context) {
+absl::StatusOr<std::unique_ptr<google::protobuf::Message>> MotionPlanningSkill::Preview(
+    const intrinsic::skills::PreviewRequest& request,
+    intrinsic::skills::PreviewContext& context) {
+  return PreviewViaExecute(*this, request, context);
+}
+
+absl::StatusOr<std::unique_ptr<google::protobuf::Message>> MotionPlanningSkill::Execute(
+    const intrinsic::skills::ExecuteRequest& request,
+    intrinsic::skills::ExecuteContext& context) {
+
   (void)context;
   INTR_ASSIGN_OR_RETURN(auto params, request.params<MotionPlanningParams>());
 
