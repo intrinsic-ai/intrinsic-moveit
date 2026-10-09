@@ -40,7 +40,7 @@ cd ~/ws_intrinsic_moveit/src
 git clone https://github.com/intrinsic-ai/intrinsic-moveit.git
 
 # For ROS 2 Lyrical:
-vcs import . < intrinsic-moveit/lyrical.repos
+vcs import . < intrinsic-moveit/lyrical.repos --recursive
 
 # For ROS 2 Jazzy:
 # vcs import . < intrinsic-moveit/jazzy.repos
@@ -289,7 +289,7 @@ sudo ln -s /usr/lib/x86_64-linux-gnu/libxml2.so.16 /usr/lib/x86_64-linux-gnu/lib
 
 Contributions are welcome! Please review:
 
-* [CONTRIBUTING.md](CONTRIBUTING.md): Details on signing the Google Contributor License Agreement (CLA), community guidelines, C++20 coding standards, and pull request workflows.  
+* [CONTRIBUTING.md](CONTRIBUTING.md): Details on signing the Google Contributor License Agreement (CLA), community guidelines, C++20 coding standards, and pull request workflows.
 * [SECURITY.md](SECURITY.md): Instructions for reporting security vulnerabilities.
 
 ---

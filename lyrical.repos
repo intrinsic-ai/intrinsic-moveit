@@ -18,8 +18,8 @@ repositories:
     version: c55b102711fc0aebe80c6952d2ce97c38110abba
   source_deps/moveit_task_constructor:
     type: git
-    url: https://github.com/aaronchongth/moveit_task_constructor.git
-    version: 774afa08f30437f2cf81186c836f94c5682c7315
+    url: https://github.com/moveit/moveit_task_constructor.git
+    version: f527048b3db1574f68f5c646e9ed7099085af5c8
   source_deps/ompl:
     type: git
     url: https://github.com/ompl/ompl.git
