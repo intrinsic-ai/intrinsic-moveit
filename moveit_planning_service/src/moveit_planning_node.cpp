@@ -64,7 +64,7 @@ std::optional<std::vector<RankedGrasp>> PlanGraspsForCandidate(
                 "Grasp planning failed for candidate '%s' with error code %d.",
                 candidate.target.id.c_str(), candidate_result.error_code.val);
 
-    return std::vector<RankedGrasp>{};
+    return std::nullopt;
   }
 
   return std::move(candidate_result.ranked_grasps);
