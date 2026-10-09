@@ -287,9 +287,9 @@ class GraspPlanningBenchmark(Node):
             planning_timeout_sec,
         )
 
-        # The server processes candidates sequentially. Give every candidate
-        # its configured planning time plus a small communication margin.
-        action_timeout_sec = candidate_count * planning_timeout_sec + 5.0
+        # The server divides planning_timeout_sec across all candidates.
+        # Add a small communication margin for action overhead.
+        action_timeout_sec = planning_timeout_sec + 5.0
 
         start_time = time.perf_counter()
         action_response = self.call_action(
@@ -510,7 +510,7 @@ def parse_arguments() -> BenchmarkConfig:
         "--planning-timeout-sec",
         type=float,
         default=10.0,
-        help="Planning timeout for each candidate request Default: 10.0 seconds",
+        help="Total planning timeout for each action request. Default: 10.0 seconds",
     )
     args = parser.parse_args()
 

@@ -53,8 +53,8 @@ message GraspPlanningParams {
   // The MoveIt planning group used. Defaults to "ur_manipulator".
   optional string group_name = 7;
 
-  // Timeout for the planning request in milliseconds. Defaults to 15000.0 (15
-  // seconds).
+  // Total timeout for the planning request in milliseconds, divided evenly
+  // across candidate_objects. Defaults to 15000.0 (15 seconds).
   optional double timeout_ms = 8;
 
   // The MoveIt end-effector group used for grasp planning. Defaults to "hand".

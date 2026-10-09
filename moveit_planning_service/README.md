@@ -72,7 +72,7 @@ ros2 service call /apply_planning_scene moveit_msgs/srv/ApplyPlanningScene "{
 
 ### 2. Request Grasp Planning (`/grasp_planning/plan_grasps`)
 
-The action accepts multiple candidate objects in one goal and returns the valid grasps ranked by `grasp_quality`.
+The action accepts multiple candidate objects in one goal, divides `planning_timeout_sec` evenly across all candidates, and returns the valid grasps ranked by `grasp_quality`.
 
 ```bash
 ros2 action send_goal /grasp_planning/plan_grasps \

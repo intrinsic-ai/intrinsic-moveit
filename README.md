@@ -173,8 +173,7 @@ ros2 action send_goal /grasp_planning/plan_grasps \
 
 Expected Response:
 
-* `grasps`: Array of generated `moveit_msgs/Grasp` candidates containing joint trajectories for `pre_grasp_posture` and `grasp_posture`.
-* `pre_grasp_poses`: Array of `geometry_msgs/PoseStamped` poses for the end-effector.
+* `ranked_grasps`: Array of `moveit_planning_interfaces/RankedGrasp` candidates sorted by `grasp_quality`, each containing `candidate_index`, `target_id`, `grasp` (`moveit_msgs/Grasp`), `pre_grasp_pose` (`geometry_msgs/PoseStamped`), `grasp_ik_solution`, and `pregrasp_ik_solution`.
 * `error_code.val`: `1` (`SUCCESS`).
 
 #### Step 3: Test Motion Planning Service (`/motion_planning/get_motion_plan`)

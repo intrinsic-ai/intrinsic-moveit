@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <string>
@@ -56,9 +57,11 @@ moveit_planning_interfaces::action::PlanGrasps::Goal CreatePlanGraspsGoal(
           : "hand";
 
   // Timeout: default to 15000.0 ms (15.0 s)
-  double timeout_ms = (params.has_timeout_ms() && params.timeout_ms() > 0.0)
-                          ? params.timeout_ms()
-                          : 15000.0;
+  const double timeout_ms =
+      (params.has_timeout_ms() && std::isfinite(params.timeout_ms()) &&
+       params.timeout_ms() > 0.0)
+          ? params.timeout_ms()
+          : 15000.0;
   goal.planning_timeout_sec = timeout_ms / 1000.0;
 
   goal.gripper_motion_duration_sec =
@@ -226,18 +229,26 @@ class GraspPlanningRosClient : public rclcpp::Node {
     auto client =
         rclcpp_action::create_client<PlanGraspsAction>(this, action_name);
 
-    const auto timeout =
-        std::chrono::milliseconds(static_cast<int64_t>(timeout_ms));
+    constexpr double kMaxTimeoutMs = 3600.0 * 1000.0;
+    const double bounded_timeout_ms =
+        (std::isfinite(timeout_ms) && timeout_ms > 0.0)
+            ? std::min(timeout_ms, kMaxTimeoutMs)
+            : 15000.0;
+    const auto timeout = std::chrono::milliseconds(std::max<int64_t>(
+        1, static_cast<int64_t>(std::ceil(bounded_timeout_ms))));
+    const auto connection_timeout =
+        std::min(timeout, std::chrono::milliseconds(5000));
+    const auto result_timeout = timeout + std::chrono::milliseconds(5000);
 
-    if (!client->wait_for_action_server(timeout)) {
+    if (!client->wait_for_action_server(connection_timeout)) {
       return absl::UnavailableError(
           absl::StrCat("Action server not reachable: ", action_name));
     }
 
     auto goal_handle_future = client->async_send_goal(goal);
-    if (rclcpp::spin_until_future_complete(this->get_node_base_interface(),
-                                           goal_handle_future, timeout) !=
-        rclcpp::FutureReturnCode::SUCCESS) {
+    if (rclcpp::spin_until_future_complete(
+            this->get_node_base_interface(), goal_handle_future,
+            connection_timeout) != rclcpp::FutureReturnCode::SUCCESS) {
       return absl::DeadlineExceededError(
           absl::StrCat("Timed out sending goal to action: ", action_name));
     }
@@ -250,7 +261,7 @@ class GraspPlanningRosClient : public rclcpp::Node {
 
     auto result_future = client->async_get_result(goal_handle);
     if (rclcpp::spin_until_future_complete(this->get_node_base_interface(),
-                                           result_future, timeout) !=
+                                           result_future, result_timeout) !=
         rclcpp::FutureReturnCode::SUCCESS) {
       client->async_cancel_goal(goal_handle);
       return absl::DeadlineExceededError(
@@ -288,11 +299,6 @@ GraspPlanningSkill::Execute(const intrinsic::skills::ExecuteRequest& request,
         "candidate_objects must contain at least one object");
   }
 
-  const double timeout_ms =
-      (params.has_timeout_ms() && params.timeout_ms() > 0.0)
-          ? params.timeout_ms()
-          : 15000.0;
-
   // Resolve plan_id
   const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                           std::chrono::system_clock::now().time_since_epoch())
@@ -304,6 +310,7 @@ GraspPlanningSkill::Execute(const intrinsic::skills::ExecuteRequest& request,
           : ("grasp_plan_" + std::to_string(now_ms));
 
   const auto goal = CreatePlanGraspsGoal(params);
+  const double timeout_ms = goal.planning_timeout_sec * 1000.0;
 
   LOG(INFO) << "Calling grasp planning action for " << goal.candidates.size()
             << " candidate objects" << " (plan_id: " << plan_id

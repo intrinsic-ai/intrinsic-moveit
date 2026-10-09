@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <cstdlib>
+#include <limits>
 #include <memory>
 #include <moveit_msgs/msg/move_it_error_codes.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -158,6 +159,44 @@ TEST_F(GraspPlanningPipelineTest,
 
   EXPECT_EQ(result.error_code.val, moveit_msgs::msg::MoveItErrorCodes::FAILURE);
   EXPECT_TRUE(result.ranked_grasps.empty());
+}
+
+TEST_F(GraspPlanningPipelineTest,
+       ResolveCandidateTimeoutSecDividesByCandidateCount) {
+  moveit_planning_interfaces::action::PlanGrasps::Goal goal;
+
+  // Unset timeout and empty candidates falls back to 5.0s / 1 candidate = 5.0s
+  EXPECT_DOUBLE_EQ(moveit_planning_service::GraspPlanningPipeline::
+                       ResolveCandidateTimeoutSec(goal),
+                   5.0);
+
+  goal.planning_timeout_sec = 15.0;
+  goal.candidates.resize(1);
+  EXPECT_DOUBLE_EQ(moveit_planning_service::GraspPlanningPipeline::
+                       ResolveCandidateTimeoutSec(goal),
+                   15.0);
+
+  goal.candidates.resize(3);
+  EXPECT_DOUBLE_EQ(moveit_planning_service::GraspPlanningPipeline::
+                       ResolveCandidateTimeoutSec(goal),
+                   5.0);
+
+  // Negative, NaN, or infinite timeouts fall back to the 5.0s total budget
+  goal.planning_timeout_sec = -2.0;
+  goal.candidates.resize(2);
+  EXPECT_DOUBLE_EQ(moveit_planning_service::GraspPlanningPipeline::
+                       ResolveCandidateTimeoutSec(goal),
+                   2.5);
+
+  goal.planning_timeout_sec = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_DOUBLE_EQ(moveit_planning_service::GraspPlanningPipeline::
+                       ResolveCandidateTimeoutSec(goal),
+                   2.5);
+
+  goal.planning_timeout_sec = std::numeric_limits<double>::infinity();
+  EXPECT_DOUBLE_EQ(moveit_planning_service::GraspPlanningPipeline::
+                       ResolveCandidateTimeoutSec(goal),
+                   2.5);
 }
 
 int main(int argc, char** argv) {

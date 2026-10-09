@@ -67,6 +67,12 @@ class GraspPlanningPipeline {
       const std::string& target_id);
 
   /**
+   * @brief Computes the per-candidate planning timeout in seconds by dividing
+   * the goal's total planning timeout evenly across all candidates.
+   */
+  static double ResolveCandidateTimeoutSec(const PlanGraspsAction::Goal& goal);
+
+  /**
    * @brief Queries MoveIt's planning scene service for the list of existing
    * world collision object names.
    */

@@ -15,8 +15,10 @@
 #include <moveit/task_constructor/task.h>
 
 #include <Eigen/Geometry>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <map>
@@ -150,6 +152,18 @@ std::string GraspPlanningPipeline::ResolveTargetObjectId(
   return target_id;
 }
 
+double GraspPlanningPipeline::ResolveCandidateTimeoutSec(
+    const PlanGraspsAction::Goal& goal) {
+  const double planning_timeout_sec =
+      (std::isfinite(goal.planning_timeout_sec) &&
+       goal.planning_timeout_sec > 0.0)
+          ? goal.planning_timeout_sec
+          : 5.0;
+  const std::size_t num_candidates =
+      std::max<std::size_t>(1, goal.candidates.size());
+  return planning_timeout_sec / static_cast<double>(num_candidates);
+}
+
 std::vector<std::string> GraspPlanningPipeline::GetPlanningSceneObjectIds(
     std::chrono::milliseconds timeout) const {
   std::vector<std::string> object_ids;
@@ -277,8 +291,7 @@ void GraspPlanningPipeline::PlanGrasps(
   const std::string ik_frame =
       goal.tool_frame.empty() ? "hande_tcp" : goal.tool_frame;
 
-  const double planning_timeout_sec =
-      goal.planning_timeout_sec > 0.0 ? goal.planning_timeout_sec : 5.0;
+  const double candidate_timeout_sec = ResolveCandidateTimeoutSec(goal);
 
   const double gripper_motion_duration_sec =
       goal.gripper_motion_duration_sec > 0.0 ? goal.gripper_motion_duration_sec
@@ -374,6 +387,7 @@ void GraspPlanningPipeline::PlanGrasps(
     mtc::Task task;
     task.stages()->setName("grasp_generator_task");
     task.setRobotModel(robot_model);
+    task.setTimeout(candidate_timeout_sec);
 
     if (robot_model->getEndEffector(eef_group) == nullptr ||
         robot_model->getLinkModel(ik_frame) == nullptr) {
@@ -418,7 +432,7 @@ void GraspPlanningPipeline::PlanGrasps(
           "connect current state to pre-grasp",
           mtc::stages::Connect::GroupPlannerVector{{goal.group_name, planner}});
 
-      connect->setTimeout(planning_timeout_sec);
+      connect->setTimeout(candidate_timeout_sec);
       connect->properties().configureInitFrom(mtc::Stage::PARENT);
 
       task.add(std::move(connect));
@@ -490,7 +504,7 @@ void GraspPlanningPipeline::PlanGrasps(
       auto compute_ik = std::make_unique<mtc::stages::ComputeIK>(
           "compute grasp ik", std::move(generator));
 
-      compute_ik->setTimeout(0.2);
+      compute_ik->setTimeout(std::min(0.2, candidate_timeout_sec));
       compute_ik->setMaxIKSolutions(16);
       compute_ik->setMinSolutionDistance(0.1);
       compute_ik->setIKFrame(ik_frame);

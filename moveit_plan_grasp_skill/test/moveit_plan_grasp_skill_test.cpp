@@ -18,6 +18,7 @@
 
 #include <chrono>
 #include <cstdlib>
+#include <limits>
 #include <rclcpp/rclcpp.hpp>
 #include <string>
 #include <thread>
@@ -71,6 +72,15 @@ TEST(MoveItPlanGraspSkillTest, DefaultValuesAppliedCorrectly) {
   EXPECT_EQ(goal.max_num_grasps, 1);
   ASSERT_EQ(goal.candidates.size(), 1u);
   EXPECT_EQ(goal.candidates[0].target.id, "test_object");
+
+  params.set_timeout_ms(-1000.0);
+  EXPECT_DOUBLE_EQ(CreatePlanGraspsGoal(params).planning_timeout_sec, 15.0);
+
+  params.set_timeout_ms(std::numeric_limits<double>::quiet_NaN());
+  EXPECT_DOUBLE_EQ(CreatePlanGraspsGoal(params).planning_timeout_sec, 15.0);
+
+  params.set_timeout_ms(std::numeric_limits<double>::infinity());
+  EXPECT_DOUBLE_EQ(CreatePlanGraspsGoal(params).planning_timeout_sec, 15.0);
 }
 
 TEST(MoveItPlanGraspSkillTest, BoxGraspAnnotationsMappedCorrectly) {

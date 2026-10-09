@@ -16,6 +16,7 @@
 string group_name
 string end_effector_group
 string tool_frame
+# Total planning timeout in seconds, divided evenly across candidates
 float64 planning_timeout_sec
 float64 gripper_motion_duration_sec
 float64 retract_dist_m
