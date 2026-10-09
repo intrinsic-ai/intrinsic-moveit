@@ -350,7 +350,9 @@ void GraspPlanningPipeline::PlanGrasps(
   const int num_rotations = goal.num_rotations > 0 ? goal.num_rotations : 4;
 
   const std::string pregrasp_pose = "open";
-  constexpr std::size_t kMaxGrasps = 10;
+  const std::size_t max_num_grasps =
+      goal.max_num_grasps > 0 ? static_cast<std::size_t>(goal.max_num_grasps)
+                              : 1;
 
   result.ranked_grasps.clear();
 
@@ -505,7 +507,7 @@ void GraspPlanningPipeline::PlanGrasps(
 
     task.init();
 
-    const auto planning_result = task.plan(kMaxGrasps);
+    const auto planning_result = task.plan(max_num_grasps);
 
     if (planning_result != moveit::core::MoveItErrorCode::SUCCESS ||
         task.solutions().empty()) {
@@ -749,7 +751,7 @@ void GraspPlanningPipeline::PlanGrasps(
 
         valid_ranked_grasps.push_back(std::move(ranked_grasp));
 
-        if (valid_ranked_grasps.size() >= kMaxGrasps) {
+        if (valid_ranked_grasps.size() >= max_num_grasps) {
           break;
         }
 
