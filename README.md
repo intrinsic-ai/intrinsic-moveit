@@ -164,7 +164,7 @@ ros2 action send_goal /grasp_planning/plan_grasps \
     num_rotations: 4,
     max_num_grasps: 10,
     candidates: [{
-      target: {id: 'test_box'},
+      target: {id: 'target_box'},
       obj_dims_in_meters: {x: 0.05, y: 0.05, z: 0.05},
       obj_t_obj_center: {orientation: {w: 1.0}}
     }]}" \

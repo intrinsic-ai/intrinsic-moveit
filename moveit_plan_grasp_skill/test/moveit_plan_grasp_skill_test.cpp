@@ -202,6 +202,9 @@ TEST(MoveItPlanGraspSkillTest, AdvancedParamsSupportFields) {
   EXPECT_EQ(params.max_num_grasps(), 5);
   EXPECT_EQ(params.output_grasp_frame().id(), "world/target_grasp");
   EXPECT_EQ(params.output_pregrasp_frame().id(), "world/target_pregrasp");
+
+  const auto goal = CreatePlanGraspsGoal(params);
+  EXPECT_EQ(goal.max_num_grasps, 5);
 }
 
 TEST(MoveItPlanGraspSkillTest, MoveItErrorCodeToStatusSuccess) {

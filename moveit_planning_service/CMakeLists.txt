@@ -113,6 +113,7 @@ target_link_libraries(status_monitor_lib
  PUBLIC
   intrinsic_sdk_cmake::intrinsic_sdk_cmake
   rclcpp::rclcpp
+  rclcpp_action::rclcpp_action
   absl::strings
   ${SERVICE_NAME}_protos
   ${std_srvs_TARGETS}
@@ -137,9 +138,9 @@ install(TARGETS
 )
 
 install(PROGRAMS
-    scripts/benchmark_grasp_planning.py
-    DESTINATION lib/${PROJECT_NAME}
-  )
+  scripts/benchmark_grasp_planning.py
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 # Install proto descriptor for sideloading
 install(FILES

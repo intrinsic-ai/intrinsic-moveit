@@ -129,8 +129,12 @@ class TestGraspPlanningIntegration(unittest.TestCase):
                 return future.result()
         return None
 
-    def call_action_sync(self, client, goal, timeout_sec=15.0):
-        goal_future = client.send_goal_async(goal)
+    def call_action_sync(
+        self, client, goal, timeout_sec=15.0, feedback_callback=None
+    ):
+        goal_future = client.send_goal_async(
+            goal, feedback_callback=feedback_callback
+        )
         rclpy.spin_until_future_complete(
             self.node, goal_future, timeout_sec=timeout_sec
         )
@@ -278,8 +282,14 @@ class TestGraspPlanningIntegration(unittest.TestCase):
         second_candidate.target.id = 'test_block_2'
         plan_grasps_goal.candidates.append(second_candidate)
 
+        feedback_messages = []
         action_response = self.call_action_sync(
-            plan_grasps_client, plan_grasps_goal, timeout_sec=15.0
+            plan_grasps_client,
+            plan_grasps_goal,
+            timeout_sec=30.0,
+            feedback_callback=lambda feedback_msg: feedback_messages.append(
+                feedback_msg.feedback
+            ),
         )
         self.assertIsNotNone(
             action_response,
@@ -294,13 +304,30 @@ class TestGraspPlanningIntegration(unittest.TestCase):
 
         plan_grasps_result = action_response.result
 
-        # 4. Verify planning results
+        # 4. Verify planning results and action feedback
         self.assertEqual(
             plan_grasps_result.error_code.val,
             MoveItErrorCodes.SUCCESS,
             f'Grasp planning failed with error code: '
             f'{plan_grasps_result.error_code.val}',
         )
+
+        self.assertEqual(
+            len(feedback_messages),
+            len(plan_grasps_goal.candidates),
+            'Expected one feedback message per candidate object',
+        )
+        for index, feedback in enumerate(feedback_messages, start=1):
+            self.assertEqual(
+                feedback.completed_candidates,
+                index,
+                'Feedback completed_candidates did not increment sequentially',
+            )
+            self.assertEqual(
+                feedback.total_candidates,
+                len(plan_grasps_goal.candidates),
+                'Feedback total_candidates does not match number of candidates',
+            )
 
         self.assertGreater(
             len(plan_grasps_result.ranked_grasps),
@@ -311,6 +338,16 @@ class TestGraspPlanningIntegration(unittest.TestCase):
             len(plan_grasps_result.ranked_grasps),
             plan_grasps_goal.max_num_grasps,
             'Action returned more grasps than max_num_grasps',
+        )
+
+        grasp_qualities = [
+            ranked_grasp.grasp.grasp_quality
+            for ranked_grasp in plan_grasps_result.ranked_grasps
+        ]
+        self.assertEqual(
+            grasp_qualities,
+            sorted(grasp_qualities, reverse=True),
+            'Expected ranked_grasps to be sorted by non-increasing grasp_quality',
         )
 
         expected_targets = {
