@@ -44,7 +44,7 @@ ADD ${ROS_DISTRO}.repos /opt/ros/underlay/${ROS_DISTRO}.repos
 # 2. Fetch upstream source dependencies defined in .repos (e.g. sdk-ros, moveit2, ompl, mtc)
 RUN mkdir -p /opt/ros/underlay/src \
     && cd /opt/ros/underlay \
-    && vcs import src < /opt/ros/underlay/${ROS_DISTRO}.repos
+    && vcs import src < /opt/ros/underlay/${ROS_DISTRO}.repos --recursive
 
 # 3. Clean up unused test packages in sdk-ros to prevent rosdep from installing unnecessary dependencies
 RUN if [ -d /opt/ros/underlay/src/sdk-ros/intrinsic_sdk_bundle_library_py/test/functional_tests ]; then \

@@ -45,7 +45,7 @@ RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
     && rosdep update \
     && mkdir -p /opt/service_workspace/src \
     && cd /opt/service_workspace \
-    && vcs import src < /opt/service_workspace/${ROS_DISTRO}.repos \
+    && vcs import src < /opt/service_workspace/${ROS_DISTRO}.repos --recursive \
     && if [ -d /opt/service_workspace/src/sdk-ros/intrinsic_sdk_bundle_library_py/test/functional_tests ]; then \
         rm -rf /opt/service_workspace/src/sdk-ros/intrinsic_sdk_bundle_library_py/test/functional_tests; \
     fi \
