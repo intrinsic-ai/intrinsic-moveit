@@ -12,6 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# The collision object in the MoveIt planning scene
 moveit_msgs/CollisionObject target
+
+# The dimensions of the object in meters
 geometry_msgs/Vector3 obj_dims_in_meters
+
+# The pose of the center of the object in the target frame
 geometry_msgs/Pose obj_t_obj_center

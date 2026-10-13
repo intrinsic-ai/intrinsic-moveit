@@ -40,11 +40,13 @@
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 
+using PlanGraspsAction = moveit_planning_interfaces::action::PlanGrasps;
+using PlanGraspsGoalHandle = rclcpp_action::ClientGoalHandle<PlanGraspsAction>;
+
 namespace com::generic::skills::grasp {
 
-moveit_planning_interfaces::action::PlanGrasps::Goal CreatePlanGraspsGoal(
-    const GraspPlanningParams& params) {
-  moveit_planning_interfaces::action::PlanGrasps::Goal goal;
+PlanGraspsAction::Goal CreatePlanGraspsGoal(const GraspPlanningParams& params) {
+  PlanGraspsAction::Goal goal;
   // Planning group: default to "ur_manipulator"
   goal.group_name = (params.has_group_name() && !params.group_name().empty())
                         ? params.group_name()
@@ -208,8 +210,6 @@ class InitRos {
   }
 };
 InitRos init;
-using PlanGraspsAction = moveit_planning_interfaces::action::PlanGrasps;
-using PlanGraspsGoalHandle = rclcpp_action::ClientGoalHandle<PlanGraspsAction>;
 
 struct ObjectPlanningResult {
   intrinsic_proto::world::ObjectReference candidate_object;
@@ -229,7 +229,7 @@ class GraspPlanningRosClient : public rclcpp::Node {
     auto client =
         rclcpp_action::create_client<PlanGraspsAction>(this, action_name);
 
-    constexpr double kMaxTimeoutMs = 3600.0 * 1000.0;
+    constexpr double kMaxTimeoutMs = 300 * 1000.0;
     const double bounded_timeout_ms =
         (std::isfinite(timeout_ms) && timeout_ms > 0.0)
             ? std::min(timeout_ms, kMaxTimeoutMs)
