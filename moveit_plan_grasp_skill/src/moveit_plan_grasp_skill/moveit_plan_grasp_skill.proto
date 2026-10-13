@@ -46,7 +46,8 @@ message GraspPlanningParams {
   optional intrinsic_proto.world.TransformNodeReference output_pregrasp_frame =
       5;
 
-  // The distance between grasp and pregrasp frames in meters. Defaults to 0.05 m.
+  // The distance between grasp and pregrasp frames in meters. Defaults to
+  // 0.05 m.
   optional double retract_dist_m = 6;
 
   // The MoveIt planning group used. Defaults to "ur_manipulator".
