@@ -15,8 +15,10 @@
 #include <moveit/task_constructor/task.h>
 
 #include <Eigen/Geometry>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <map>
@@ -150,6 +152,18 @@ std::string GraspPlanningPipeline::ResolveTargetObjectId(
   return target_id;
 }
 
+double GraspPlanningPipeline::ResolveCandidateTimeoutSec(
+    const PlanGraspsAction::Goal& goal) {
+  const double planning_timeout_sec =
+      (std::isfinite(goal.planning_timeout_sec) &&
+       goal.planning_timeout_sec > 0.0)
+          ? goal.planning_timeout_sec
+          : 5.0;
+  const std::size_t num_candidates =
+      std::max<std::size_t>(1, goal.candidates.size());
+  return planning_timeout_sec / static_cast<double>(num_candidates);
+}
+
 std::vector<std::string> GraspPlanningPipeline::GetPlanningSceneObjectIds(
     std::chrono::milliseconds timeout) const {
   std::vector<std::string> object_ids;
@@ -238,80 +252,77 @@ GraspPlanningPipeline::GetPlanningSceneCollisionObject(
 }
 
 void GraspPlanningPipeline::PlanGrasps(
-    const std::shared_ptr<PlanGraspsSrv::Request>& request,
-    std::shared_ptr<PlanGraspsSrv::Response>& response,
+    const PlanGraspsAction::Goal& goal, GraspCandidate candidate,
+    uint32_t candidate_index, PlanGraspsAction::Result& result,
     std::chrono::milliseconds service_call_timeout) {
   if (!node_) {
-    response->error_code.val = moveit_msgs::msg::MoveItErrorCodes::FAILURE;
+    result.error_code.val = moveit_msgs::msg::MoveItErrorCodes::FAILURE;
     return;
   }
 
-  if (request->target.id.empty()) {
+  if (candidate.target.id.empty()) {
     RCLCPP_ERROR(node_->get_logger(), "target.id is empty.");
-    response->error_code.val =
+    result.error_code.val =
         moveit_msgs::msg::MoveItErrorCodes::INVALID_OBJECT_NAME;
     return;
   }
 
   // Resolve target object ID against active planning scene
   const auto scene_object_ids = GetPlanningSceneObjectIds(service_call_timeout);
-  const std::string original_target_id = request->target.id;
-  request->target.id =
+  const std::string original_target_id = candidate.target.id;
+  candidate.target.id =
       ResolveTargetObjectId(scene_object_ids, original_target_id);
 
-  if (request->target.id != original_target_id) {
+  if (candidate.target.id != original_target_id) {
     RCLCPP_INFO(
         node_->get_logger(),
         "Resolved target object '%s' to planning scene collision object '%s'",
-        original_target_id.c_str(), request->target.id.c_str());
+        original_target_id.c_str(), candidate.target.id.c_str());
   }
 
   RCLCPP_INFO(
       node_->get_logger(),
       "Received grasp planning request for group: '%s', target object: '%s'",
-      request->group_name.c_str(), request->target.id.c_str());
+      goal.group_name.c_str(), candidate.target.id.c_str());
 
-  const std::string eef_group = request->end_effector_group.empty()
-                                    ? "hand"
-                                    : request->end_effector_group;
+  const std::string eef_group =
+      goal.end_effector_group.empty() ? "hand" : goal.end_effector_group;
 
   const std::string ik_frame =
-      request->tool_frame.empty() ? "hande_tcp" : request->tool_frame;
+      goal.tool_frame.empty() ? "hande_tcp" : goal.tool_frame;
 
-  const double planning_timeout_sec =
-      request->planning_timeout_sec > 0.0 ? request->planning_timeout_sec : 5.0;
+  const double candidate_timeout_sec = ResolveCandidateTimeoutSec(goal);
 
   const double gripper_motion_duration_sec =
-      request->gripper_motion_duration_sec > 0.0
-          ? request->gripper_motion_duration_sec
-          : 0.5;
+      goal.gripper_motion_duration_sec > 0.0 ? goal.gripper_motion_duration_sec
+                                             : 0.5;
 
   Eigen::Vector3d box_dims;
   Eigen::Isometry3d obj_t_obj_center = Eigen::Isometry3d::Identity();
 
-  const bool has_explicit_dimensions = request->obj_dims_in_meters.x > 0.0 &&
-                                       request->obj_dims_in_meters.y > 0.0 &&
-                                       request->obj_dims_in_meters.z > 0.0;
+  const bool has_explicit_dimensions = candidate.obj_dims_in_meters.x > 0.0 &&
+                                       candidate.obj_dims_in_meters.y > 0.0 &&
+                                       candidate.obj_dims_in_meters.z > 0.0;
 
   if (has_explicit_dimensions) {
-    box_dims = Eigen::Vector3d(request->obj_dims_in_meters.x,
-                               request->obj_dims_in_meters.y,
-                               request->obj_dims_in_meters.z);
-    obj_t_obj_center = pose_to_isometry(request->obj_t_obj_center);
+    box_dims = Eigen::Vector3d(candidate.obj_dims_in_meters.x,
+                               candidate.obj_dims_in_meters.y,
+                               candidate.obj_dims_in_meters.z);
+    obj_t_obj_center = pose_to_isometry(candidate.obj_t_obj_center);
 
     RCLCPP_INFO(
         node_->get_logger(),
         "Using object dimensions from request. '%s': [%.4f, %.4f, %.4f]",
-        request->target.id.c_str(), box_dims.x(), box_dims.y(), box_dims.z());
+        candidate.target.id.c_str(), box_dims.x(), box_dims.y(), box_dims.z());
   } else {
     const auto collision_object = GetPlanningSceneCollisionObject(
-        request->target.id, service_call_timeout);
+        candidate.target.id, service_call_timeout);
     if (!collision_object.has_value()) {
       RCLCPP_ERROR(node_->get_logger(),
                    "Cannot determine dimensions for target object '%s': the "
                    "object was not found in the planning scene.",
-                   request->target.id.c_str());
-      response->error_code.val =
+                   candidate.target.id.c_str());
+      result.error_code.val =
           moveit_msgs::msg::MoveItErrorCodes::INVALID_OBJECT_NAME;
       return;
     }
@@ -324,8 +335,8 @@ void GraspPlanningPipeline::PlanGrasps(
           node_->get_logger(),
           "Cannot determine the dimensions for object '%s': its collision "
           "geometry does not contain a valid BOX primitive or mesh.",
-          request->target.id.c_str());
-      response->error_code.val = moveit_msgs::msg::MoveItErrorCodes::FAILURE;
+          candidate.target.id.c_str());
+      result.error_code.val = moveit_msgs::msg::MoveItErrorCodes::FAILURE;
       return;
     }
 
@@ -335,12 +346,12 @@ void GraspPlanningPipeline::PlanGrasps(
     RCLCPP_INFO(node_->get_logger(),
                 "Retrieved dimensions for object '%s' from the planning scene: "
                 "[%.4f, %.4f, %.4f]",
-                request->target.id.c_str(), box_dims.x(), box_dims.y(),
+                candidate.target.id.c_str(), box_dims.x(), box_dims.y(),
                 box_dims.z());
   }
 
   std::vector<int32_t> surfaces;
-  for (int32_t s : request->surfaces) {
+  for (int32_t s : goal.surfaces) {
     if (s >= 0 && s <= 5) {
       surfaces.push_back(s);
     }
@@ -349,17 +360,18 @@ void GraspPlanningPipeline::PlanGrasps(
     surfaces = {0, 1, 2, 3, 4, 5};
   }
 
-  const int num_rotations =
-      request->num_rotations > 0 ? request->num_rotations : 4;
+  const int num_rotations = goal.num_rotations > 0 ? goal.num_rotations : 4;
 
   const std::string pregrasp_pose = "open";
-  constexpr std::size_t kMaxGrasps = 10;
+  const std::size_t max_num_grasps =
+      goal.max_num_grasps > 0 ? static_cast<std::size_t>(goal.max_num_grasps)
+                              : 1;
 
-  response->grasps.clear();
+  result.ranked_grasps.clear();
 
-  if (request->group_name.empty()) {
+  if (goal.group_name.empty()) {
     RCLCPP_ERROR(node_->get_logger(), "group_name is empty in the request.");
-    response->error_code.val =
+    result.error_code.val =
         moveit_msgs::msg::MoveItErrorCodes::INVALID_GROUP_NAME;
     return;
   }
@@ -368,13 +380,14 @@ void GraspPlanningPipeline::PlanGrasps(
     const auto robot_model = GetRobotModel();
     if (!robot_model) {
       RCLCPP_ERROR(node_->get_logger(), "Robot model could not be loaded.");
-      response->error_code.val = moveit_msgs::msg::MoveItErrorCodes::FAILURE;
+      result.error_code.val = moveit_msgs::msg::MoveItErrorCodes::FAILURE;
       return;
     }
 
     mtc::Task task;
     task.stages()->setName("grasp_generator_task");
     task.setRobotModel(robot_model);
+    task.setTimeout(candidate_timeout_sec);
 
     if (robot_model->getEndEffector(eef_group) == nullptr ||
         robot_model->getLinkModel(ik_frame) == nullptr) {
@@ -382,12 +395,12 @@ void GraspPlanningPipeline::PlanGrasps(
           node_->get_logger(),
           "Robot model does not define end effector '%s' with IK frame '%s'.",
           eef_group.c_str(), ik_frame.c_str());
-      response->error_code.val =
+      result.error_code.val =
           moveit_msgs::msg::MoveItErrorCodes::INVALID_ROBOT_STATE;
       return;
     }
 
-    task.setProperty("group", request->group_name);
+    task.setProperty("group", goal.group_name);
     task.setProperty("eef", eef_group);
     task.setProperty("ik_frame", ik_frame);
 
@@ -417,10 +430,9 @@ void GraspPlanningPipeline::PlanGrasps(
 
       auto connect = std::make_unique<mtc::stages::Connect>(
           "connect current state to pre-grasp",
-          mtc::stages::Connect::GroupPlannerVector{
-              {request->group_name, planner}});
+          mtc::stages::Connect::GroupPlannerVector{{goal.group_name, planner}});
 
-      connect->setTimeout(planning_timeout_sec);
+      connect->setTimeout(candidate_timeout_sec);
       connect->properties().configureInitFrom(mtc::Stage::PARENT);
 
       task.add(std::move(connect));
@@ -438,11 +450,11 @@ void GraspPlanningPipeline::PlanGrasps(
           "approach object", cartesian_planner);
 
       approach->properties().configureInitFrom(mtc::Stage::PARENT, {"group"});
-      approach->setGroup(request->group_name);
+      approach->setGroup(goal.group_name);
       approach->setIKFrame(ik_frame);
 
       const double retract_dist =
-          request->retract_dist_m > 0.0 ? request->retract_dist_m : 0.05;
+          goal.retract_dist_m > 0.0 ? goal.retract_dist_m : 0.05;
       approach->setMinMaxDistance(retract_dist * 0.5, retract_dist);
 
       geometry_msgs::msg::Vector3Stamped direction;
@@ -466,7 +478,7 @@ void GraspPlanningPipeline::PlanGrasps(
           robot_model->getJointModelGroup(eef_group);
       if (eef_joint_model_group != nullptr) {
         allow_gripper_object_collision->allowCollisions(
-            request->target.id,
+            candidate.target.id,
             eef_joint_model_group->getLinkModelNamesWithCollisionGeometry(),
             true);
       }
@@ -481,7 +493,7 @@ void GraspPlanningPipeline::PlanGrasps(
       generator->properties().configureInitFrom(mtc::Stage::PARENT);
       generator->properties().set("marker_ns", "grasp_poses");
 
-      generator->setObject(request->target.id);
+      generator->setObject(candidate.target.id);
       generator->setPreGraspPose(pregrasp_pose);
       generator->setSurfaces(surfaces);
       generator->setNumRotations(num_rotations);
@@ -492,7 +504,7 @@ void GraspPlanningPipeline::PlanGrasps(
       auto compute_ik = std::make_unique<mtc::stages::ComputeIK>(
           "compute grasp ik", std::move(generator));
 
-      compute_ik->setTimeout(0.2);
+      compute_ik->setTimeout(std::min(0.2, candidate_timeout_sec));
       compute_ik->setMaxIKSolutions(16);
       compute_ik->setMinSolutionDistance(0.1);
       compute_ik->setIKFrame(ik_frame);
@@ -509,25 +521,25 @@ void GraspPlanningPipeline::PlanGrasps(
 
     task.init();
 
-    const auto planning_result = task.plan(kMaxGrasps);
+    const auto planning_result = task.plan(max_num_grasps);
 
     if (planning_result != moveit::core::MoveItErrorCode::SUCCESS ||
         task.solutions().empty()) {
       RCLCPP_WARN(node_->get_logger(),
                   "No reachable grasp candidates found for object '%s'.",
-                  request->target.id.c_str());
+                  candidate.target.id.c_str());
 
-      response->error_code.val =
+      result.error_code.val =
           moveit_msgs::msg::MoveItErrorCodes::PLANNING_FAILED;
       return;
     }
 
-    const auto* arm_jmg = robot_model->getJointModelGroup(request->group_name);
+    const auto* arm_jmg = robot_model->getJointModelGroup(goal.group_name);
     if (arm_jmg == nullptr) {
       RCLCPP_ERROR(node_->get_logger(),
                    "Arm joint model group '%s' not found in robot model.",
-                   request->group_name.c_str());
-      response->error_code.val =
+                   goal.group_name.c_str());
+      result.error_code.val =
           moveit_msgs::msg::MoveItErrorCodes::INVALID_GROUP_NAME;
       return;
     }
@@ -539,7 +551,7 @@ void GraspPlanningPipeline::PlanGrasps(
       RCLCPP_ERROR(node_->get_logger(),
                    "End-effector joint model group '%s' not found.",
                    eef_group.c_str());
-      response->error_code.val =
+      result.error_code.val =
           moveit_msgs::msg::MoveItErrorCodes::INVALID_GROUP_NAME;
       return;
     }
@@ -550,7 +562,7 @@ void GraspPlanningPipeline::PlanGrasps(
       RCLCPP_ERROR(node_->get_logger(),
                    "Named state 'open' not found for group '%s'.",
                    eef_group.c_str());
-      response->error_code.val =
+      result.error_code.val =
           moveit_msgs::msg::MoveItErrorCodes::INVALID_ROBOT_STATE;
       return;
     }
@@ -561,13 +573,13 @@ void GraspPlanningPipeline::PlanGrasps(
       RCLCPP_ERROR(node_->get_logger(),
                    "Named state 'closed' not found for group '%s'.",
                    eef_group.c_str());
-      response->error_code.val =
+      result.error_code.val =
           moveit_msgs::msg::MoveItErrorCodes::INVALID_ROBOT_STATE;
       return;
     }
 
     const double retract_dist =
-        request->retract_dist_m > 0.0 ? request->retract_dist_m : 0.05;
+        goal.retract_dist_m > 0.0 ? goal.retract_dist_m : 0.05;
 
     const auto gripper_joint_names =
         eef_joint_model_group->getActiveJointModelNames();
@@ -586,7 +598,7 @@ void GraspPlanningPipeline::PlanGrasps(
         RCLCPP_ERROR(node_->get_logger(),
                      "Named gripper states do not contain joint '%s'.",
                      joint_name.c_str());
-        response->error_code.val =
+        result.error_code.val =
             moveit_msgs::msg::MoveItErrorCodes::INVALID_ROBOT_STATE;
         return;
       }
@@ -645,17 +657,9 @@ void GraspPlanningPipeline::PlanGrasps(
     post_place_retreat.desired_distance = static_cast<float>(retract_dist);
     post_place_retreat.min_distance = static_cast<float>(retract_dist * 0.5);
 
-    std::vector<moveit_msgs::msg::Grasp> valid_grasps;
-    valid_grasps.reserve(task.solutions().size());
-
-    std::vector<geometry_msgs::msg::PoseStamped> valid_pregrasp_poses;
-    valid_pregrasp_poses.reserve(task.solutions().size());
-
-    std::vector<sensor_msgs::msg::JointState> valid_grasp_ik_solutions;
-    valid_grasp_ik_solutions.reserve(task.solutions().size());
-
-    std::vector<sensor_msgs::msg::JointState> valid_pregrasp_ik_solutions;
-    valid_pregrasp_ik_solutions.reserve(task.solutions().size());
+    std::vector<moveit_planning_interfaces::msg::RankedGrasp>
+        valid_ranked_grasps;
+    valid_ranked_grasps.reserve(task.solutions().size());
 
     for (const auto& solution : task.solutions()) {
       if (!solution || solution->isFailure() || solution->end() == nullptr ||
@@ -735,7 +739,7 @@ void GraspPlanningPipeline::PlanGrasps(
         pregrasp_ik_solution.position = std::move(pregrasp_arm_positions);
 
         moveit_msgs::msg::Grasp grasp;
-        grasp.id = "grasp_" + std::to_string(valid_grasps.size());
+        grasp.id = "grasp_" + std::to_string(valid_ranked_grasps.size());
         grasp.pre_grasp_posture = open_gripper_posture;
         grasp.grasp_posture = closed_gripper_posture;
         grasp.grasp_pose = target_pose;
@@ -745,19 +749,23 @@ void GraspPlanningPipeline::PlanGrasps(
         grasp.post_grasp_retreat = post_grasp_retreat;
         grasp.post_place_retreat = post_place_retreat;
         grasp.max_contact_force = 0.0f;
-        grasp.allowed_touch_objects = {request->target.id};
+        grasp.allowed_touch_objects = {candidate.target.id};
 
         RCLCPP_INFO(
             node_->get_logger(), "Candidate %s: cost = %.4f (comment: '%s')",
             grasp.id.c_str(), solution->cost(), solution->comment().c_str());
 
-        valid_grasps.push_back(std::move(grasp));
-        valid_pregrasp_poses.push_back(std::move(pre_grasp_pose_msg));
+        moveit_planning_interfaces::msg::RankedGrasp ranked_grasp;
+        ranked_grasp.candidate_index = candidate_index;
+        ranked_grasp.target_id = candidate.target.id;
+        ranked_grasp.grasp = std::move(grasp);
+        ranked_grasp.pre_grasp_pose = std::move(pre_grasp_pose_msg);
+        ranked_grasp.grasp_ik_solution = std::move(grasp_ik_solution);
+        ranked_grasp.pregrasp_ik_solution = std::move(pregrasp_ik_solution);
 
-        valid_grasp_ik_solutions.push_back(std::move(grasp_ik_solution));
-        valid_pregrasp_ik_solutions.push_back(std::move(pregrasp_ik_solution));
+        valid_ranked_grasps.push_back(std::move(ranked_grasp));
 
-        if (valid_grasps.size() >= kMaxGrasps) {
+        if (valid_ranked_grasps.size() >= max_num_grasps) {
           break;
         }
 
@@ -768,39 +776,36 @@ void GraspPlanningPipeline::PlanGrasps(
       }
     }
 
-    if (valid_grasps.empty()) {
+    if (valid_ranked_grasps.empty()) {
       RCLCPP_WARN(node_->get_logger(),
                   "Complete solutions were found, but no grasp poses could be "
                   "extracted.");
 
-      response->error_code.val =
+      result.error_code.val =
           moveit_msgs::msg::MoveItErrorCodes::PLANNING_FAILED;
       return;
     }
 
     task.introspection().publishSolution(*task.solutions().front());
 
-    response->grasps = std::move(valid_grasps);
-    response->pre_grasp_poses = std::move(valid_pregrasp_poses);
-    response->grasp_ik_solutions = std::move(valid_grasp_ik_solutions);
-    response->pregrasp_ik_solutions = std::move(valid_pregrasp_ik_solutions);
-    response->error_code.val = moveit_msgs::msg::MoveItErrorCodes::SUCCESS;
+    result.ranked_grasps = std::move(valid_ranked_grasps);
+    result.error_code.val = moveit_msgs::msg::MoveItErrorCodes::SUCCESS;
 
     RCLCPP_INFO(node_->get_logger(),
                 "Successfully generated %zu reachable grasp candidates for "
                 "object '%s'.",
-                response->grasps.size(), request->target.id.c_str());
+                result.ranked_grasps.size(), candidate.target.id.c_str());
 
   } catch (const mtc::InitStageException& exception) {
     RCLCPP_ERROR_STREAM(node_->get_logger(), "MTC initialization failed:\n"
                                                  << exception);
 
-    response->error_code.val = moveit_msgs::msg::MoveItErrorCodes::FAILURE;
+    result.error_code.val = moveit_msgs::msg::MoveItErrorCodes::FAILURE;
   } catch (const std::exception& exception) {
     RCLCPP_ERROR(node_->get_logger(), "Grasp planning failed: %s",
                  exception.what());
 
-    response->error_code.val = moveit_msgs::msg::MoveItErrorCodes::FAILURE;
+    result.error_code.val = moveit_msgs::msg::MoveItErrorCodes::FAILURE;
   }
 }
 

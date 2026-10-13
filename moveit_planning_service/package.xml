@@ -32,6 +32,7 @@ limitations under the License.
   <depend>abseil_cpp_vendor</depend>
   <depend>eigen</depend>
   <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
   <depend>std_srvs</depend>
   <depend>moveit_msgs</depend>
   <depend>moveit_planning_interfaces</depend>
@@ -55,6 +56,7 @@ limitations under the License.
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>rviz2</exec_depend>
   <exec_depend>controller_manager</exec_depend>
+  <exec_depend>rclpy</exec_depend>
 
   <test_depend>ament_cmake_gtest</test_depend>
   <test_depend>launch_testing_ament_cmake</test_depend>
@@ -64,6 +66,7 @@ limitations under the License.
   <test_depend>rmw_zenoh_cpp</test_depend>
   <test_depend>ros2run</test_depend>
   <test_depend>shape_msgs</test_depend>
+  <test_depend>action_msgs</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

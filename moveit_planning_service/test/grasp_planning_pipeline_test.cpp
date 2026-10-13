@@ -6,9 +6,9 @@
 
 #include <chrono>
 #include <cstdlib>
+#include <limits>
 #include <memory>
 #include <moveit_msgs/msg/move_it_error_codes.hpp>
-#include <moveit_planning_interfaces/srv/plan_grasps.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <thread>
 #include <vector>
@@ -119,19 +119,20 @@ TEST_F(GraspPlanningPipelineTest,
 }
 
 TEST_F(GraspPlanningPipelineTest, PlanGraspsRejectsEmptyTargetId) {
-  auto request =
-      std::make_shared<moveit_planning_interfaces::srv::PlanGrasps::Request>();
-  request->target.id = "";
-  request->group_name = "arm";
+  moveit_planning_interfaces::action::PlanGrasps::Goal goal;
+  goal.group_name = "arm";
 
-  auto response =
-      std::make_shared<moveit_planning_interfaces::srv::PlanGrasps::Response>();
+  moveit_planning_interfaces::msg::GraspCandidate candidate;
+  candidate.target.id = "";
 
-  pipeline_->PlanGrasps(request, response, std::chrono::milliseconds(50));
+  moveit_planning_interfaces::action::PlanGrasps::Result result;
 
-  EXPECT_EQ(response->error_code.val,
+  pipeline_->PlanGrasps(goal, candidate, 0, result,
+                        std::chrono::milliseconds(50));
+
+  EXPECT_EQ(result.error_code.val,
             moveit_msgs::msg::MoveItErrorCodes::INVALID_OBJECT_NAME);
-  EXPECT_TRUE(response->grasps.empty());
+  EXPECT_TRUE(result.ranked_grasps.empty());
 }
 
 TEST_F(GraspPlanningPipelineTest, GetRobotModelReturnsNulloptWhenUnconfigured) {
@@ -142,21 +143,60 @@ TEST_F(GraspPlanningPipelineTest, GetRobotModelReturnsNulloptWhenUnconfigured) {
 
 TEST_F(GraspPlanningPipelineTest,
        PlanGraspsFailsGracefullyWhenRobotModelUnavailable) {
-  auto request =
-      std::make_shared<moveit_planning_interfaces::srv::PlanGrasps::Request>();
-  request->target.id = "test_box";
-  request->group_name = "arm";
-  request->obj_dims_in_meters.x = 0.1;
-  request->obj_dims_in_meters.y = 0.1;
-  request->obj_dims_in_meters.z = 0.1;
+  moveit_planning_interfaces::action::PlanGrasps::Goal goal;
+  goal.group_name = "arm";
 
-  auto response =
-      std::make_shared<moveit_planning_interfaces::srv::PlanGrasps::Response>();
+  moveit_planning_interfaces::msg::GraspCandidate candidate;
+  candidate.target.id = "test_box";
+  candidate.obj_dims_in_meters.x = 0.1;
+  candidate.obj_dims_in_meters.y = 0.1;
+  candidate.obj_dims_in_meters.z = 0.1;
 
-  pipeline_->PlanGrasps(request, response, std::chrono::milliseconds(50));
+  moveit_planning_interfaces::action::PlanGrasps::Result result;
 
-  EXPECT_EQ(response->error_code.val,
-            moveit_msgs::msg::MoveItErrorCodes::FAILURE);
+  pipeline_->PlanGrasps(goal, candidate, 0, result,
+                        std::chrono::milliseconds(50));
+
+  EXPECT_EQ(result.error_code.val, moveit_msgs::msg::MoveItErrorCodes::FAILURE);
+  EXPECT_TRUE(result.ranked_grasps.empty());
+}
+
+TEST_F(GraspPlanningPipelineTest,
+       ResolveCandidateTimeoutSecDividesByCandidateCount) {
+  moveit_planning_interfaces::action::PlanGrasps::Goal goal;
+
+  // Unset timeout and empty candidates falls back to 5.0s / 1 candidate = 5.0s
+  EXPECT_DOUBLE_EQ(moveit_planning_service::GraspPlanningPipeline::
+                       ResolveCandidateTimeoutSec(goal),
+                   5.0);
+
+  goal.planning_timeout_sec = 15.0;
+  goal.candidates.resize(1);
+  EXPECT_DOUBLE_EQ(moveit_planning_service::GraspPlanningPipeline::
+                       ResolveCandidateTimeoutSec(goal),
+                   15.0);
+
+  goal.candidates.resize(3);
+  EXPECT_DOUBLE_EQ(moveit_planning_service::GraspPlanningPipeline::
+                       ResolveCandidateTimeoutSec(goal),
+                   5.0);
+
+  // Negative, NaN, or infinite timeouts fall back to the 5.0s total budget
+  goal.planning_timeout_sec = -2.0;
+  goal.candidates.resize(2);
+  EXPECT_DOUBLE_EQ(moveit_planning_service::GraspPlanningPipeline::
+                       ResolveCandidateTimeoutSec(goal),
+                   2.5);
+
+  goal.planning_timeout_sec = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_DOUBLE_EQ(moveit_planning_service::GraspPlanningPipeline::
+                       ResolveCandidateTimeoutSec(goal),
+                   2.5);
+
+  goal.planning_timeout_sec = std::numeric_limits<double>::infinity();
+  EXPECT_DOUBLE_EQ(moveit_planning_service::GraspPlanningPipeline::
+                       ResolveCandidateTimeoutSec(goal),
+                   2.5);
 }
 
 int main(int argc, char** argv) {

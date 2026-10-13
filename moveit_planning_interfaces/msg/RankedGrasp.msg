@@ -12,20 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-string group_name
-string end_effector_group
-string tool_frame
-float64 planning_timeout_sec
-float64 gripper_motion_duration_sec
-float64 retract_dist_m
-int32[] surfaces
-int32 num_rotations
-geometry_msgs/Vector3 obj_dims_in_meters
-geometry_msgs/Pose obj_t_obj_center
-moveit_msgs/CollisionObject target
----
-moveit_msgs/Grasp[] grasps
-geometry_msgs/PoseStamped[] pre_grasp_poses
-sensor_msgs/JointState[] grasp_ik_solutions
-sensor_msgs/JointState[] pregrasp_ik_solutions
-moveit_msgs/MoveItErrorCodes error_code
+uint32 candidate_index
+string target_id
+moveit_msgs/Grasp grasp
+geometry_msgs/PoseStamped pre_grasp_pose
+sensor_msgs/JointState grasp_ik_solution
+sensor_msgs/JointState pregrasp_ik_solution

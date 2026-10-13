@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <string>
@@ -35,100 +36,125 @@
 #include "intrinsic/world/objects/world_object.h"
 #include "moveit_msgs/msg/move_it_error_codes.hpp"
 #include "moveit_plan_grasp_skill.pb.h"
-#include "moveit_planning_interfaces/srv/plan_grasps.hpp"
+#include "moveit_planning_interfaces/action/plan_grasps.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
+
+using PlanGraspsAction = moveit_planning_interfaces::action::PlanGrasps;
+using PlanGraspsGoalHandle = rclcpp_action::ClientGoalHandle<PlanGraspsAction>;
 
 namespace com::generic::skills::grasp {
 
-std::shared_ptr<moveit_planning_interfaces::srv::PlanGrasps::Request>
-CreatePlanGraspsRequest(
-    const GraspPlanningParams& params,
-    const intrinsic_proto::world::ObjectReference& candidate) {
-  auto req =
-      std::make_shared<moveit_planning_interfaces::srv::PlanGrasps::Request>();
-
+PlanGraspsAction::Goal CreatePlanGraspsGoal(const GraspPlanningParams& params) {
+  PlanGraspsAction::Goal goal;
   // Planning group: default to "ur_manipulator"
-  req->group_name = (params.has_group_name() && !params.group_name().empty())
+  goal.group_name = (params.has_group_name() && !params.group_name().empty())
                         ? params.group_name()
                         : "ur_manipulator";
 
   // End effector group: default to "hand"
-  req->end_effector_group =
+  goal.end_effector_group =
       (params.has_end_effector_group() && !params.end_effector_group().empty())
           ? params.end_effector_group()
           : "hand";
 
-  // Timeout: default to 10000.0 ms (10.0 s)
-  double timeout_ms = (params.has_timeout_ms() && params.timeout_ms() > 0.0)
-                          ? params.timeout_ms()
-                          : 10000.0;
-  req->planning_timeout_sec = timeout_ms / 1000.0;
+  // Timeout: default to 15000.0 ms (15.0 s)
+  const double timeout_ms =
+      (params.has_timeout_ms() && std::isfinite(params.timeout_ms()) &&
+       params.timeout_ms() > 0.0)
+          ? params.timeout_ms()
+          : 15000.0;
+  goal.planning_timeout_sec = timeout_ms / 1000.0;
 
-  req->gripper_motion_duration_sec =
+  goal.gripper_motion_duration_sec =
       (params.has_gripper_motion_duration_sec() &&
        params.gripper_motion_duration_sec() > 0.0)
           ? params.gripper_motion_duration_sec()
           : 0.5;
 
   // Retract distance: default to 0.05 m
-  req->retract_dist_m =
+  goal.retract_dist_m =
       (params.has_retract_dist_m() && params.retract_dist_m() > 0.0)
           ? params.retract_dist_m()
           : 0.05;
+
+  goal.max_num_grasps =
+      (params.has_max_num_grasps() && params.max_num_grasps() > 0)
+          ? params.max_num_grasps()
+          : 1;
 
   // Extract box grasp annotation parameters
   if (params.has_box_grasp_annotations()) {
     const auto& box_annotations = params.box_grasp_annotations();
     for (int surface : box_annotations.surfaces()) {
-      req->surfaces.push_back(surface);
+      goal.surfaces.push_back(surface);
     }
-    req->num_rotations = box_annotations.num_rotations();
-
-    if (box_annotations.has_obj_dims_in_meters()) {
-      req->obj_dims_in_meters.x = box_annotations.obj_dims_in_meters().x();
-      req->obj_dims_in_meters.y = box_annotations.obj_dims_in_meters().y();
-      req->obj_dims_in_meters.z = box_annotations.obj_dims_in_meters().z();
-    }
-
-    if (box_annotations.has_obj_t_obj_center()) {
-      const auto& center_pose = box_annotations.obj_t_obj_center();
-      if (center_pose.has_position()) {
-        req->obj_t_obj_center.position.x = center_pose.position().x();
-        req->obj_t_obj_center.position.y = center_pose.position().y();
-        req->obj_t_obj_center.position.z = center_pose.position().z();
-      }
-      if (center_pose.has_orientation()) {
-        req->obj_t_obj_center.orientation.x = center_pose.orientation().x();
-        req->obj_t_obj_center.orientation.y = center_pose.orientation().y();
-        req->obj_t_obj_center.orientation.z = center_pose.orientation().z();
-        req->obj_t_obj_center.orientation.w = center_pose.orientation().w();
-      }
-    }
+    goal.num_rotations = box_annotations.num_rotations();
   }
 
   // Extract tool_frame from TransformNodeReference if provided
   if (params.has_tool_frame()) {
     if (!params.tool_frame().id().empty()) {
-      req->tool_frame = params.tool_frame().id();
+      goal.tool_frame = params.tool_frame().id();
     } else if (params.tool_frame().has_by_name()) {
       const auto& by_name = params.tool_frame().by_name();
       if (by_name.has_frame() && !by_name.frame().frame_name().empty()) {
-        req->tool_frame = by_name.frame().frame_name();
+        goal.tool_frame = by_name.frame().frame_name();
       } else if (by_name.has_object() &&
                  !by_name.object().object_name().empty()) {
-        req->tool_frame = by_name.object().object_name();
+        goal.tool_frame = by_name.object().object_name();
       }
     }
   }
 
-  if (!candidate.id().empty()) {
-    req->target.id = candidate.id();
-  } else if (candidate.has_by_name() &&
-             !candidate.by_name().object_name().empty()) {
-    req->target.id = candidate.by_name().object_name();
+  for (const auto& candidate_object : params.candidate_objects()) {
+    moveit_planning_interfaces::msg::GraspCandidate candidate;
+
+    if (!candidate_object.id().empty()) {
+      candidate.target.id = candidate_object.id();
+    } else if (candidate_object.has_by_name() &&
+               !candidate_object.by_name().object_name().empty()) {
+      candidate.target.id = candidate_object.by_name().object_name();
+    }
+
+    if (params.has_box_grasp_annotations()) {
+      const auto& box_annotations = params.box_grasp_annotations();
+
+      if (box_annotations.has_obj_dims_in_meters()) {
+        candidate.obj_dims_in_meters.x =
+            box_annotations.obj_dims_in_meters().x();
+        candidate.obj_dims_in_meters.y =
+            box_annotations.obj_dims_in_meters().y();
+        candidate.obj_dims_in_meters.z =
+            box_annotations.obj_dims_in_meters().z();
+      }
+
+      if (box_annotations.has_obj_t_obj_center()) {
+        const auto& center_pose = box_annotations.obj_t_obj_center();
+
+        if (center_pose.has_position()) {
+          candidate.obj_t_obj_center.position.x = center_pose.position().x();
+          candidate.obj_t_obj_center.position.y = center_pose.position().y();
+          candidate.obj_t_obj_center.position.z = center_pose.position().z();
+        }
+
+        if (center_pose.has_orientation()) {
+          candidate.obj_t_obj_center.orientation.x =
+              center_pose.orientation().x();
+          candidate.obj_t_obj_center.orientation.y =
+              center_pose.orientation().y();
+          candidate.obj_t_obj_center.orientation.z =
+              center_pose.orientation().z();
+          candidate.obj_t_obj_center.orientation.w =
+              center_pose.orientation().w();
+        }
+      }
+    }
+
+    goal.candidates.push_back(candidate);
   }
 
-  return req;
+  return goal;
 }
 
 absl::Status MoveItErrorCodeToStatus(int32_t error_code,
@@ -184,7 +210,6 @@ class InitRos {
   }
 };
 InitRos init;
-using PlanGrasps = moveit_planning_interfaces::srv::PlanGrasps;
 
 struct ObjectPlanningResult {
   intrinsic_proto::world::ObjectReference candidate_object;
@@ -198,24 +223,63 @@ class GraspPlanningRosClient : public rclcpp::Node {
  public:
   GraspPlanningRosClient() : Node("grasp_planning_skill_client") {}
 
-  absl::StatusOr<PlanGrasps::Response::SharedPtr> CallGraspPlanning(
-      const std::string& service_name,
-      std::shared_ptr<PlanGrasps::Request> request, double timeout_ms) {
-    auto client = this->create_client<PlanGrasps>(service_name);
-    auto timeout = std::chrono::milliseconds(static_cast<int>(timeout_ms));
-    if (!client->wait_for_service(timeout)) {
+  absl::StatusOr<PlanGraspsAction::Result::SharedPtr> CallGraspPlanningAction(
+      const std::string& action_name, const PlanGraspsAction::Goal& goal,
+      double timeout_ms) {
+    auto client =
+        rclcpp_action::create_client<PlanGraspsAction>(this, action_name);
+
+    constexpr double kMaxTimeoutMs = 300 * 1000.0;
+    const double bounded_timeout_ms =
+        (std::isfinite(timeout_ms) && timeout_ms > 0.0)
+            ? std::min(timeout_ms, kMaxTimeoutMs)
+            : 15000.0;
+    const auto timeout = std::chrono::milliseconds(std::max<int64_t>(
+        1, static_cast<int64_t>(std::ceil(bounded_timeout_ms))));
+    const auto connection_timeout =
+        std::min(timeout, std::chrono::milliseconds(5000));
+    const auto result_timeout = timeout + std::chrono::milliseconds(5000);
+
+    if (!client->wait_for_action_server(connection_timeout)) {
       return absl::UnavailableError(
-          absl::StrCat("Service not reachable: ", service_name));
+          absl::StrCat("Action server not reachable: ", action_name));
     }
 
-    auto result = client->async_send_request(request);
-    if (rclcpp::spin_until_future_complete(this->get_node_base_interface(),
-                                           result, timeout) !=
-        rclcpp::FutureReturnCode::SUCCESS) {
-      return absl::DeadlineExceededError(absl::StrCat(
-          "Timed out waiting for service response: ", service_name));
+    auto goal_handle_future = client->async_send_goal(goal);
+    if (rclcpp::spin_until_future_complete(
+            this->get_node_base_interface(), goal_handle_future,
+            connection_timeout) != rclcpp::FutureReturnCode::SUCCESS) {
+      return absl::DeadlineExceededError(
+          absl::StrCat("Timed out sending goal to action: ", action_name));
     }
-    return result.get();
+
+    const auto goal_handle = goal_handle_future.get();
+    if (!goal_handle) {
+      return absl::FailedPreconditionError(
+          absl::StrCat("Grasp planning goal was rejected by: ", action_name));
+    }
+
+    auto result_future = client->async_get_result(goal_handle);
+    if (rclcpp::spin_until_future_complete(this->get_node_base_interface(),
+                                           result_future, result_timeout) !=
+        rclcpp::FutureReturnCode::SUCCESS) {
+      client->async_cancel_goal(goal_handle);
+      return absl::DeadlineExceededError(
+          absl::StrCat("Timed out waiting for action result: ", action_name));
+    }
+
+    auto wrapped_result = result_future.get();
+
+    if (wrapped_result.code == rclcpp_action::ResultCode::CANCELED) {
+      return absl::CancelledError("Grasp planning action was canceled.");
+    }
+
+    if (wrapped_result.code == rclcpp_action::ResultCode::UNKNOWN) {
+      return absl::InternalError(
+          "Grasp planning action returned an unknown result.");
+    }
+
+    return wrapped_result.result;
   }
 };
 }  // namespace
@@ -235,169 +299,83 @@ GraspPlanningSkill::Execute(const intrinsic::skills::ExecuteRequest& request,
         "candidate_objects must contain at least one object");
   }
 
-  // Resolve planning parameters with fallbacks
-  std::string group_name =
-      (params.has_group_name() && !params.group_name().empty())
-          ? params.group_name()
-          : "ur_manipulator";
-
-  double timeout_ms = (params.has_timeout_ms() && params.timeout_ms() > 0.0)
-                          ? params.timeout_ms()
-                          : 10000.0;
-
   // Resolve plan_id
   const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                           std::chrono::system_clock::now().time_since_epoch())
                           .count();
-  std::string plan_id = (params.has_plan_id() && !params.plan_id().empty())
-                            ? params.plan_id()
-                            : ("grasp_plan_" + std::to_string(now_ms));
 
-  // Determine max number of grasps
-  int64_t max_grasps = 1;
-  if (params.has_max_num_grasps() && params.max_num_grasps() > 0) {
-    max_grasps = params.max_num_grasps();
-  }
+  const std::string plan_id =
+      (params.has_plan_id() && !params.plan_id().empty())
+          ? params.plan_id()
+          : ("grasp_plan_" + std::to_string(now_ms));
 
-  LOG(INFO) << "Calling grasp planning service for group: " << group_name
-            << " (plan_id: " << plan_id << ", max_grasps: " << max_grasps
-            << ")";
+  const auto goal = CreatePlanGraspsGoal(params);
+  const double timeout_ms = goal.planning_timeout_sec * 1000.0;
+
+  LOG(INFO) << "Calling grasp planning action for " << goal.candidates.size()
+            << " candidate objects" << " (plan_id: " << plan_id
+            << ", max_grasps: " << goal.max_num_grasps << ")";
 
   auto client = std::make_shared<GraspPlanningRosClient>();
-  const std::string service_name = "grasp_planning/plan_grasps";
+  const std::string action_name = "grasp_planning/plan_grasps";
 
-  std::vector<ObjectPlanningResult> successful_results;
+  auto call_result =
+      client->CallGraspPlanningAction(action_name, goal, timeout_ms);
 
-  int32_t last_moveit_error_code =
-      moveit_msgs::msg::MoveItErrorCodes::UNDEFINED;
-  std::string last_target_id;
-  absl::Status last_rpc_status = absl::OkStatus();
-
-  for (const auto& candidate_object : params.candidate_objects()) {
-    auto req = CreatePlanGraspsRequest(params, candidate_object);
-    last_target_id = req->target.id;
-
-    LOG(INFO) << "Calling grasp planning service for candidate object: "
-              << req->target.id;
-
-    auto call_res = client->CallGraspPlanning(service_name, req, timeout_ms);
-    if (!call_res.ok()) {
-      last_rpc_status = call_res.status();
-      LOG(ERROR) << "Grasp planning service call failed for object: "
-                 << req->target.id << ": " << call_res.status().message();
-      continue;
-    }
-
-    auto object_response = call_res.value();
-    last_moveit_error_code = object_response->error_code.val;
-
-    const bool object_success =
-        object_response->error_code.val ==
-            moveit_msgs::msg::MoveItErrorCodes::SUCCESS &&
-        !object_response->grasps.empty();
-
-    if (!object_success) {
-      LOG(INFO) << "No valid grasps found for candidate object: "
-                << req->target.id;
-      continue;
-    }
-
-    if (object_response->pre_grasp_poses.size() !=
-        object_response->grasps.size()) {
-      return absl::InternalError(absl::StrCat(
-          "Grasp planning service returned mismatched grasps (",
-          object_response->grasps.size(), ") and pre_grasp_poses (",
-          object_response->pre_grasp_poses.size(), ") for object '",
-          req->target.id, "'."));
-    }
-
-    if (object_response->grasp_ik_solutions.size() !=
-        object_response->grasps.size()) {
-      return absl::InternalError(absl::StrCat(
-          "Grasp planning service returned mismatched grasps (",
-          object_response->grasps.size(), ") and grasp_ik_solutions (",
-          object_response->grasp_ik_solutions.size(), ") for object '",
-          req->target.id, "'."));
-    }
-
-    if (object_response->pregrasp_ik_solutions.size() !=
-        object_response->grasps.size()) {
-      return absl::InternalError(absl::StrCat(
-          "Grasp planning service returned mismatched grasps (",
-          object_response->grasps.size(), ") and pregrasp_ik_solutions (",
-          object_response->pregrasp_ik_solutions.size(), ") for object '",
-          req->target.id, "'."));
-    }
-
-    for (std::size_t grasp_index = 0;
-         grasp_index < object_response->grasps.size(); ++grasp_index) {
-      const auto& grasp_ik_solution =
-          object_response->grasp_ik_solutions[grasp_index];
-      const auto& pregrasp_ik_solution =
-          object_response->pregrasp_ik_solutions[grasp_index];
-
-      if (grasp_ik_solution.position.empty() ||
-          grasp_ik_solution.name.size() != grasp_ik_solution.position.size()) {
-        return absl::InternalError(
-            absl::StrCat("Invalid grasp IK solution returned for object '",
-                         req->target.id, "'."));
-      }
-
-      if (pregrasp_ik_solution.position.empty() ||
-          pregrasp_ik_solution.name.size() !=
-              pregrasp_ik_solution.position.size()) {
-        return absl::InternalError(
-            absl::StrCat("Invalid pregrasp IK solution returned for object '",
-                         req->target.id, "'."));
-      }
-
-      successful_results.push_back(
-          {candidate_object, object_response->grasps[grasp_index],
-           object_response->pre_grasp_poses[grasp_index], grasp_ik_solution,
-           pregrasp_ik_solution});
-    }
+  if (!call_result.ok()) {
+    LOG(ERROR) << "Grasp planning action failed: "
+               << call_result.status().message();
+    return call_result.status();
   }
 
-  if (successful_results.empty()) {
-    if (params.candidate_objects_size() == 1) {
-      if (!last_rpc_status.ok() &&
-          last_moveit_error_code ==
-              moveit_msgs::msg::MoveItErrorCodes::UNDEFINED) {
-        LOG(ERROR) << "Grasp planning failed: " << last_rpc_status.message();
-        return last_rpc_status;
-      }
-      if (last_moveit_error_code !=
-              moveit_msgs::msg::MoveItErrorCodes::SUCCESS &&
-          last_moveit_error_code !=
-              moveit_msgs::msg::MoveItErrorCodes::UNDEFINED) {
-        auto status =
-            MoveItErrorCodeToStatus(last_moveit_error_code, last_target_id);
-        LOG(ERROR) << "Grasp planning failed: " << status.message();
-        return status;
-      }
-      std::string target_msg =
-          last_target_id.empty()
-              ? ""
-              : absl::StrCat(" for object '", last_target_id, "'");
-      auto status = absl::NotFoundError(
-          absl::StrCat("No grasp candidates generated", target_msg, "."));
-      LOG(ERROR) << "Grasp planning failed: " << status.message();
-      return status;
-    }
+  const auto action_result = call_result.value();
 
-    auto status = absl::NotFoundError(absl::StrCat(
-        "No reachable or collision-free grasp candidates found across all ",
-        params.candidate_objects_size(), " candidate objects."));
+  if (action_result->error_code.val !=
+      moveit_msgs::msg::MoveItErrorCodes::SUCCESS) {
+    auto status = MoveItErrorCodeToStatus(action_result->error_code.val);
     LOG(ERROR) << "Grasp planning failed: " << status.message();
     return status;
   }
 
-  std::sort(successful_results.begin(), successful_results.end(),
-            [](const ObjectPlanningResult& first_candidate,
-               const ObjectPlanningResult& second_candidate) {
-              return first_candidate.grasp.grasp_quality >
-                     second_candidate.grasp.grasp_quality;
-            });
+  if (action_result->ranked_grasps.empty()) {
+    return absl::NotFoundError(
+        "No reachable or collision-free grasp candidates were returned.");
+  }
+
+  std::vector<ObjectPlanningResult> successful_results;
+  successful_results.reserve(action_result->ranked_grasps.size());
+
+  for (const auto& ranked_grasp : action_result->ranked_grasps) {
+    if (ranked_grasp.candidate_index >=
+        static_cast<uint32_t>(params.candidate_objects_size())) {
+      return absl::InternalError(absl::StrCat(
+          "Grasp planning action returned invalid candidate index: ",
+          ranked_grasp.candidate_index, "."));
+    }
+
+    const auto& grasp_ik_solution = ranked_grasp.grasp_ik_solution;
+    const auto& pregrasp_ik_solution = ranked_grasp.pregrasp_ik_solution;
+
+    if (grasp_ik_solution.position.empty() ||
+        grasp_ik_solution.name.size() != grasp_ik_solution.position.size()) {
+      return absl::InternalError(
+          absl::StrCat("Invalid grasp IK solution returned for object '",
+                       ranked_grasp.target_id, "'."));
+    }
+
+    if (pregrasp_ik_solution.position.empty() ||
+        pregrasp_ik_solution.name.size() !=
+            pregrasp_ik_solution.position.size()) {
+      return absl::InternalError(
+          absl::StrCat("Invalid pregrasp IK solution returned for object '",
+                       ranked_grasp.target_id, "'."));
+    }
+
+    successful_results.push_back(
+        {params.candidate_objects(ranked_grasp.candidate_index),
+         ranked_grasp.grasp, ranked_grasp.pre_grasp_pose, grasp_ik_solution,
+         pregrasp_ik_solution});
+  }
 
   auto response_proto = std::make_unique<GraspPlanningResult>();
   response_proto->set_success(true);
@@ -477,8 +455,7 @@ GraspPlanningSkill::Execute(const intrinsic::skills::ExecuteRequest& request,
   }
 
   // Populate the result protobuf with grasps
-  const size_t grasp_count =
-      std::min(static_cast<size_t>(max_grasps), successful_results.size());
+  const size_t grasp_count = successful_results.size();
   for (size_t i = 0; i < grasp_count; ++i) {
     const auto& result = successful_results[i];
     const auto& grasp = result.grasp;
