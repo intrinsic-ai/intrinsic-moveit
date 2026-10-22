@@ -117,8 +117,8 @@ moveit_planning_service.bundle.tar: moveit_planning_service_proto_desc download_
 		--manifest ./moveit_planning_service/moveit_planning_service.manifest.textproto \
 		--oci_image ./images/moveit_planning_service.tar \
 		--default_config ./moveit_planning_service/moveit_planning_service_default_config.pbtxt \
-		--file_descriptor_set ./images/moveit_planning_service_protos.desc \
 		--file_descriptor_set ./images/intrinsic_proto.desc \
+		--file_descriptor_set ./images/moveit_planning_service_protos.desc \
 		--output ./images/moveit_planning_service.bundle.tar
 
 # Planning Service Installation Targets
@@ -177,7 +177,7 @@ moveit_plan_motion_skill_proto_desc: moveit_plan_motion_skill
 moveit_plan_motion_skill.bundle.tar: moveit_plan_motion_skill_proto_desc download_inbuild_and_inctl
 	./bin/inbuild skill manifest \
 		--manifest ./moveit_plan_motion_skill/src/moveit_plan_motion_skill/moveit_plan_motion_skill.manifest.textproto \
-		--file_descriptor_sets ./images/moveit_plan_motion_skill_protos.desc,./images/intrinsic_proto.desc \
+		--file_descriptor_sets ./images/intrinsic_proto.desc,./images/moveit_plan_motion_skill_protos.desc \
 		--output ./images/moveit_plan_motion_skill_augmented_manifest.pbbin \
 		--file_descriptor_set_out ./images/moveit_plan_motion_skill_augmented_protos.desc
 	./bin/inbuild skill bundle \
@@ -213,7 +213,7 @@ moveit_plan_grasp_skill_proto_desc: moveit_plan_grasp_skill
 moveit_plan_grasp_skill.bundle.tar: moveit_plan_grasp_skill_proto_desc download_inbuild_and_inctl
 	./bin/inbuild skill manifest \
 		--manifest ./moveit_plan_grasp_skill/src/moveit_plan_grasp_skill/moveit_plan_grasp_skill.manifest.textproto \
-		--file_descriptor_sets ./images/moveit_plan_grasp_skill_protos.desc,./images/intrinsic_proto.desc \
+		--file_descriptor_sets ./images/intrinsic_proto.desc,./images/moveit_plan_grasp_skill_protos.desc \
 		--output ./images/moveit_plan_grasp_skill_augmented_manifest.pbbin \
 		--file_descriptor_set_out ./images/moveit_plan_grasp_skill_augmented_protos.desc
 	./bin/inbuild skill bundle \
