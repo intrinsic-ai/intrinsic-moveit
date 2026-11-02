@@ -18,9 +18,9 @@ limitations under the License.
 
 <robot xmlns:xacro="http://wiki.ros.org/xacro">
 
-  <xacro:include filename="$(find robot_hardware_description)/urdf/robotiq_hande/robotiq_hande.ros2_control.xacro"/>
+  <xacro:include filename="$(find robot_hardware_descriptions)/urdf/robotiq_hande/robotiq_hande.ros2_control.xacro"/>
 
-  <xacro:macro name="robotiq_hande" params="name tf_prefix grip_pos_min grip_pos_max grip_vel_max grip_effort_min grip_effort_max initial_pos use_ros2_control:=false">
+  <xacro:macro name="robotiq_hande" params="name tf_prefix grip_pos_min grip_pos_max grip_vel_max grip_effort_min grip_effort_max initial_pos tcp_z_offset:=0.14 use_ros2_control:=false">
 
     <xacro:if value="${use_ros2_control}">
       <xacro:robotiq_hande_ros2_control
@@ -47,21 +47,21 @@ limitations under the License.
       <visual name="visual1">
         <origin xyz="0 0 0" rpy="0 0 0"/>
         <geometry>
-          <mesh filename="package://robot_hardware_description/meshes/robotiq_hande/robotiq_hande_body.dae"/>
+          <mesh filename="package://robot_hardware_descriptions/meshes/robotiq_hande/robotiq_hande_body.dae"/>
         </geometry>
       </visual>
 
       <collision name="collision1">
         <origin xyz="0 0 0" rpy="0 0 0"/>
         <geometry>
-          <mesh filename="package://robot_hardware_description/meshes/robotiq_hande/robotiq_hande_body_c01.stl"/>
+          <mesh filename="package://robot_hardware_descriptions/meshes/robotiq_hande/robotiq_hande_body_c01.stl"/>
         </geometry>
       </collision>
 
       <collision name="collision2">
         <origin xyz="0 0 0" rpy="0 0 0"/>
         <geometry>
-          <mesh filename="package://robot_hardware_description/meshes/robotiq_hande/robotiq_hande_body_c02.stl"/>
+          <mesh filename="package://robot_hardware_descriptions/meshes/robotiq_hande/robotiq_hande_body_c02.stl"/>
         </geometry>
       </collision>
     </link>
@@ -79,7 +79,7 @@ limitations under the License.
       <visual name="visual1">
         <origin xyz="0 0 0" rpy="0 0 0"/>
         <geometry>
-          <mesh filename="package://robot_hardware_description/meshes/robotiq_hande/robotiq_hande_finger.dae"/>
+          <mesh filename="package://robot_hardware_descriptions/meshes/robotiq_hande/robotiq_hande_finger.dae"/>
         </geometry>
       </visual>
 
@@ -110,7 +110,7 @@ limitations under the License.
       <visual name="visual1">
         <origin xyz="0 0 0" rpy="0 0 3.14157"/>
         <geometry>
-          <mesh filename="package://robot_hardware_description/meshes/robotiq_hande/robotiq_hande_finger.dae"/>
+          <mesh filename="package://robot_hardware_descriptions/meshes/robotiq_hande/robotiq_hande_finger.dae"/>
         </geometry>
       </visual>
 
@@ -150,8 +150,8 @@ limitations under the License.
     <link name="${tf_prefix}tcp"/>
 
     <joint name="${tf_prefix}attach_tool_frame" type="fixed">
-    <!-- NOTE(aaronchongth): decreased z-offset from 0.172 to 0.14 because of constant collisions with scene objects -->
-      <origin xyz="0 0 0.14" rpy="0 0 0"/>
+    <!-- NOTE(aaronchongth): OMTS defaults to 0.14 (reduced from 0.172 for scene clearance); lab_bb_01 overrides to 0.128 matching intrinsic-omts -->
+      <origin xyz="0 0 ${tcp_z_offset}" rpy="0 0 0"/>
       <parent link="${tf_prefix}hande_base_link"/>
       <child link="${tf_prefix}tcp"/>
     </joint>

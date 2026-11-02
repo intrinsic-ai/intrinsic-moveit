@@ -21,18 +21,18 @@ urdf/ur5e/
 
 ---
 
-## Integration in `robot.urdf.xacro`
+## Integration in `omts.urdf.xacro`
 
-The top-level `robot.urdf.xacro` incorporates this vendored macro directly:
+The top-level `omts.urdf.xacro` incorporates this vendored macro directly:
 
 ```xml
 <!-- Vendored Intrinsic UR5e macro -->
-<xacro:include filename="$(find robot_hardware_description)/urdf/ur5e/ur5e_macro.xacro"/>
+<xacro:include filename="$(find robot_hardware_descriptions)/urdf/ur5e/ur5e_macro.xacro"/>
 
 <xacro:ur5e_robot
   name="ur5e"
   tf_prefix=""
-  parent="world">
+  parent="">
   <origin xyz="0 0 0" rpy="0 0 0"/>
 </xacro:ur5e_robot>
 ```
