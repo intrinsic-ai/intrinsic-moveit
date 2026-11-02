@@ -33,6 +33,7 @@ pkg_check_modules(LTTNG_UST REQUIRED lttng-ust IMPORTED_TARGET)
 find_package(absl REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_python REQUIRED)
 find_package(intrinsic_sdk_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
@@ -59,6 +60,12 @@ intrinsic_sdk_generate_service_manifest(
   PARAMETER_DESCRIPTOR ${SERVICE_NAME}.proto
   DEFAULT_CONFIGURATION ${SERVICE_NAME}_default_config.pbtxt
   PROTOS_TARGET ${SERVICE_NAME}_protos
+)
+# Ensure incremental builds regenerate the descriptor set when the .proto changes.
+add_custom_command(
+  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${SERVICE_NAME}_protos.desc
+  APPEND
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${SERVICE_NAME}.proto
 )
 
 # Executables
@@ -129,6 +136,9 @@ target_link_libraries(status_monitor
  PUBLIC
   status_monitor_lib
 )
+
+# Install Python helper package
+ament_python_install_package(${PROJECT_NAME})
 
 # Install
 install(TARGETS
@@ -244,6 +254,9 @@ if(BUILD_TESTING)
     ${moveit_task_constructor_core_TARGETS}
     ${moveit_planning_interfaces_TARGETS}
   )
+
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_robot_config test/test_robot_config.py)
 
   find_package(launch_testing_ament_cmake REQUIRED)
   add_launch_test(

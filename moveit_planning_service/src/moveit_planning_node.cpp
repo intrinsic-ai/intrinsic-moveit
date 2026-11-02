@@ -446,6 +446,7 @@ int main(int argc, char** argv) {
   node->declare_parameter<bool>("publish_world_root_tf", true);
   node->declare_parameter<bool>("publish_robot_base_tf", true);
   node->declare_parameter<std::string>("world_tf_prefix", "world");
+  node->declare_parameter<std::string>("robot_config", "");
   node->declare_parameter<std::string>("robot_base_frame_id",
                                        "ur_module/base_link");
   node->declare_parameter<std::string>("tf_prefix", "");
@@ -510,6 +511,14 @@ int main(int argc, char** argv) {
       node->set_parameter(
           rclcpp::Parameter("world_tf_prefix", config.world_tf_prefix()));
     }
+    if (node->get_parameter("robot_config").as_string().empty() &&
+        config.has_robot_config() && !config.robot_config().empty()) {
+      std::string normalized = config.robot_config();
+      std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                     [](unsigned char c) { return std::tolower(c); });
+      std::replace(normalized.begin(), normalized.end(), '-', '_');
+      node->set_parameter(rclcpp::Parameter("robot_config", normalized));
+    }
     if (!config.robot_base_frame_id().empty()) {
       node->set_parameter(rclcpp::Parameter("robot_base_frame_id",
                                             config.robot_base_frame_id()));
@@ -545,6 +554,10 @@ int main(int argc, char** argv) {
       node->set_parameter(rclcpp::Parameter("world_sync_interval_sec",
                                             config.world_sync_interval_sec()));
     }
+  }
+
+  if (node->get_parameter("robot_config").as_string().empty()) {
+    node->set_parameter(rclcpp::Parameter("robot_config", "omts"));
   }
 
   // Populate strongly-typed config structs from resolved node parameters
@@ -707,7 +720,9 @@ int main(int argc, char** argv) {
       rcl_action_server_get_default_options(),
       planning_services_callback_group);
 
-  RCLCPP_INFO(node->get_logger(), "MoveIt Planning Service started.");
+  RCLCPP_INFO(node->get_logger(),
+              "MoveIt Planning Service started (robot_config: '%s').",
+              node->get_parameter("robot_config").as_string().c_str());
   RCLCPP_INFO(node->get_logger(), "Ready to receive requests at:");
   RCLCPP_INFO(node->get_logger(), " - motion_planning/get_motion_plan");
   RCLCPP_INFO(node->get_logger(), " - grasp_planning/plan_grasps (action)");
