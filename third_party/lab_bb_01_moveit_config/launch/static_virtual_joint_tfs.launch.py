@@ -35,5 +35,5 @@ from moveit_configs_utils.launches import generate_static_virtual_joint_tfs_laun
 
 
 def generate_launch_description():
-    moveit_config = MoveItConfigsBuilder("robot_hardware", package_name="robot_hardware_moveit_config").to_moveit_configs()
+    moveit_config = MoveItConfigsBuilder("lab_bb_01", package_name="lab_bb_01_moveit_config").to_moveit_configs()
     return generate_static_virtual_joint_tfs_launch(moveit_config)

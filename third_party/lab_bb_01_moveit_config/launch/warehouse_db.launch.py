@@ -31,9 +31,9 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 from moveit_configs_utils import MoveItConfigsBuilder
-from moveit_configs_utils.launches import generate_moveit_rviz_launch
+from moveit_configs_utils.launches import generate_warehouse_db_launch
 
 
 def generate_launch_description():
-    moveit_config = MoveItConfigsBuilder("robot_hardware", package_name="robot_hardware_moveit_config").to_moveit_configs()
-    return generate_moveit_rviz_launch(moveit_config)
+    moveit_config = MoveItConfigsBuilder("lab_bb_01", package_name="lab_bb_01_moveit_config").to_moveit_configs()
+    return generate_warehouse_db_launch(moveit_config)

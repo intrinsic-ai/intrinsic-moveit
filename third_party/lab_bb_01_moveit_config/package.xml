@@ -36,10 +36,10 @@ POSSIBILITY OF SUCH DAMAGE.
 -->
 
 <package format="3">
-  <name>robot_hardware_moveit_config</name>
+  <name>lab_bb_01_moveit_config</name>
   <version>0.3.0</version>
   <description>
-     An automatically generated package with all the configuration and launch files for using the robot_hardware with the MoveIt Motion Planning Framework
+     MoveIt configuration and launch files for the lab-bb-01 (UR3e) workcell configuration
   </description>
   <maintainer email="ivan.martinez@ekumenlabs.com">Ivan David Martinez Baron </maintainer>
 
@@ -54,7 +54,7 @@ POSSIBILITY OF SUCH DAMAGE.
   <buildtool_depend>ament_cmake</buildtool_depend>
 
  <!-- Robot description -->
-  <exec_depend>robot_hardware_description</exec_depend>
+  <exec_depend>robot_hardware_descriptions</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>xacro</exec_depend>
   <exec_depend>tf2_ros</exec_depend>

@@ -31,9 +31,9 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 from moveit_configs_utils import MoveItConfigsBuilder
-from moveit_configs_utils.launches import generate_spawn_controllers_launch
+from moveit_configs_utils.launches import generate_static_virtual_joint_tfs_launch
 
 
 def generate_launch_description():
-    moveit_config = MoveItConfigsBuilder("robot_hardware", package_name="robot_hardware_moveit_config").to_moveit_configs()
-    return generate_spawn_controllers_launch(moveit_config)
+    moveit_config = MoveItConfigsBuilder("omts", package_name="omts_moveit_config").to_moveit_configs()
+    return generate_static_virtual_joint_tfs_launch(moveit_config)

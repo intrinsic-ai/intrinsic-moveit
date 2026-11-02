@@ -30,19 +30,10 @@
 # ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-cmake_minimum_required(VERSION 3.22)
-project(robot_hardware_moveit_config)
+from moveit_configs_utils import MoveItConfigsBuilder
+from moveit_configs_utils.launches import generate_spawn_controllers_launch
 
-find_package(ament_cmake REQUIRED)
 
-ament_package()
-
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/launch")
-  install(
-    DIRECTORY launch
-    DESTINATION share/${PROJECT_NAME}
-    PATTERN "setup_assistant.launch" EXCLUDE)
-endif()
-
-install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
-install(FILES .setup_assistant DESTINATION share/${PROJECT_NAME})
+def generate_launch_description():
+    moveit_config = MoveItConfigsBuilder("omts", package_name="omts_moveit_config").to_moveit_configs()
+    return generate_spawn_controllers_launch(moveit_config)

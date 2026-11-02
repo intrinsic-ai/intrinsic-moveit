@@ -227,6 +227,24 @@ if(BUILD_TESTING)
     status_monitor_lib
   )
 
+  ament_add_gtest(robot_configs_model_test
+    test/robot_configs_model_test.cpp
+    src/grasp_planning_pipeline.cpp
+    src/object_geometry.cpp
+    src/generate_box_grasp_poses.cpp
+  )
+  target_include_directories(robot_configs_model_test PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+  target_link_libraries(robot_configs_model_test
+    ament_index_cpp::ament_index_cpp
+    rclcpp::rclcpp
+    Eigen3::Eigen
+    ${moveit_msgs_TARGETS}
+    ${moveit_core_TARGETS}
+    ${moveit_ros_planning_interface_TARGETS}
+    ${moveit_task_constructor_core_TARGETS}
+    ${moveit_planning_interfaces_TARGETS}
+  )
+
   find_package(launch_testing_ament_cmake REQUIRED)
   add_launch_test(
     test/test_grasp_planning_integration.test.py

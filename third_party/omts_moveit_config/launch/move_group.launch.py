@@ -30,13 +30,10 @@
 # ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-# Default initial positions for robot_hardware's ros2_control fake system
+from moveit_configs_utils import MoveItConfigsBuilder
+from moveit_configs_utils.launches import generate_move_group_launch
 
-initial_positions:
-  elbow_joint: 0
-  hande_left_finger_joint: 0
-  shoulder_lift_joint: 0
-  shoulder_pan_joint: 0
-  wrist_1_joint: 0
-  wrist_2_joint: 0
-  wrist_3_joint: 0
+
+def generate_launch_description():
+    moveit_config = MoveItConfigsBuilder("omts", package_name="omts_moveit_config").to_moveit_configs()
+    return generate_move_group_launch(moveit_config)

@@ -34,16 +34,16 @@ ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 -->
 
-<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="robot_hardware">
-    <xacro:arg name="initial_positions_file" default="initial_positions.yaml" />
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="omts">
+    <xacro:arg name="initial_positions_file" default="$(find omts_moveit_config)/config/initial_positions.yaml" />
 
-    <!-- Import robot_hardware urdf file -->
-    <xacro:include filename="$(find robot_hardware_description)/urdf/robot.urdf.xacro" />
+    <!-- Import omts urdf file -->
+    <xacro:include filename="$(find robot_hardware_descriptions)/urdf/omts.urdf.xacro" />
 
     <!-- Import control_xacro -->
-    <xacro:include filename="robot_hardware.ros2_control.xacro" />
+    <xacro:include filename="omts.ros2_control.xacro" />
 
 
-    <xacro:robot_hardware_ros2_control name="FakeSystem" initial_positions_file="$(arg initial_positions_file)"/>
+    <xacro:omts_ros2_control name="FakeSystem" initial_positions_file="$(arg initial_positions_file)"/>
 
 </robot>

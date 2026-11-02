@@ -50,7 +50,8 @@ limitations under the License.
   <depend>flowstate_ros_bridge</depend>
 
   <!-- MoveIt Hardware Config & Execution Dependencies -->
-  <exec_depend>robot_hardware_moveit_config</exec_depend>
+  <exec_depend>omts_moveit_config</exec_depend>
+  <exec_depend>lab_bb_01_moveit_config</exec_depend>
   <exec_depend>moveit_configs_utils</exec_depend>
   <exec_depend>moveit_ros_move_group</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
