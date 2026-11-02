@@ -4,7 +4,7 @@
 
 This repository provides MoveIt and MoveIt Task Constructor planning services and skills for robotic applications running on [Intrinsic Core](https://github.com/intrinsic-ai/intrinsic-core). It includes a unified ROS 2 planning service (consolidating planning, scene bridging, collision meshes, and TF streaming) and C++ client skills for motion and grasp planning.
 
-Intrinsic Core is the primary supported deployment environment, with the primary supported hardware setup for [Intrinsic Open Machine Tending Solution](https://github.com/intrinsic-ai/intrinsic-omts). Users with a Flowstate license can also deploy and use these components through the Flowstate platform, see [here](docs/flowstate_integration.md).
+Intrinsic Core is the primary supported deployment environment, supporting the `omts` (UR5e) and `lab-bb-01` (UR3e) workcell hardware configurations of [Intrinsic Open Machine Tending Solution](https://github.com/intrinsic-ai/intrinsic-omts). Users with a Flowstate license can also deploy and use these components through the Flowstate platform, see [here](docs/flowstate_integration.md).
 
 > [!NOTE]
 > This repository is still undergoing active development. Check out [our next steps](#next-steps) for what's to come.
@@ -18,8 +18,8 @@ Intrinsic Core is the primary supported deployment environment, with the primary
 * [`moveit_planning_interfaces/`](./moveit_planning_interfaces/): ROS 2 action and message definitions for grasp planning (e.g. `PlanGrasps.action`, `GraspCandidate.msg`, and `RankedGrasp.msg`).
 * [`moveit_plan_motion_skill/`](./moveit_plan_motion_skill/): C++ client skill executing motion planning requests against the planning service.
 * [`moveit_plan_grasp_skill/`](./moveit_plan_grasp_skill/): C++ client skill executing grasp planning requests against the planning service.
-* [`robot_hardware_description/`](./robot_hardware_description/): Hardware description (URDF/Xacro macros and meshes) for the UR5e robot with Robotiq Hand-E gripper and wrist-mounted Orbbec Gemini 335Le camera.
-* [`robot_hardware_moveit_config/`](./third_party/robot_hardware_moveit_config/): MoveIt configuration package containing SRDF, kinematics solver parameters, joint limits, controllers, and planning pipelines (OMPL, STOMP, Pilz).
+* [`robot_hardware_descriptions/`](./robot_hardware_descriptions/): Hardware descriptions (URDF/Xacro macros and meshes) for the `omts` (UR5e) and `lab_bb_01` (UR3e) workcells with a Robotiq Hand-E gripper and wrist-mounted Orbbec Gemini 335Le camera.
+* [`omts_moveit_config/`](./third_party/omts_moveit_config/) and [`lab_bb_01_moveit_config/`](./third_party/lab_bb_01_moveit_config/): Per-workcell MoveIt configuration packages containing SRDF, kinematics solver parameters, joint limits, controllers, and planning pipelines (OMPL, STOMP, Pilz).
 * [`Makefile`](./Makefile): Automation script for building OCI container images, bundling assets and running tests.
 * [`Dockerfile.service`](./Dockerfile.service): Multi-stage Dockerfile building and packaging `moveit_planning_service` into runtime container images.
 * [`Dockerfile.skill`](./Dockerfile.skill): Dockerfile building and packaging skills (`moveit_plan_motion_skill` and `moveit_plan_grasp_skill`) into container images.
@@ -79,9 +79,11 @@ export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 export ROS_DOMAIN_ID=0
 export ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/127.0.0.1:7447"]'
 
-# Launch unified planning service, with visualization using Rviz
+# Launch unified planning service, with visualization using Rviz (defaults to robot_config:=omts;
+# pass robot_config:=lab-bb-01 for the UR3e lab-bb-01 workcell)
 source install/setup.bash
 ros2 launch moveit_planning_service service.launch.py \
+    robot_config:=omts \
     headless:=false \
     start_service_status_monitor:=false
 
@@ -97,11 +99,12 @@ Once launched with rviz, the MoveIt planning scene and robot state should be in 
 
 #### Option B: Standalone / Offline Mode (Mock Hardware)
 
-For local testing without an Intrinsic Core connection or physical hardware, set `use_mock_hardware:=true` and `expect_collision_objects:=false`:
+For local testing without an Intrinsic Core connection or physical hardware, set `use_mock_hardware:=true` and `expect_collision_objects:=false` (and optionally `robot_config:=omts` or `robot_config:=lab-bb-01`):
 
 ```bash
 source install/setup.bash
 ros2 launch moveit_planning_service service.launch.py \
+    robot_config:=omts \
     headless:=false \
     use_mock_hardware:=true \
     expect_collision_objects:=false \
@@ -215,7 +218,7 @@ Always verify startup logs in the terminal (for local runs) or via the **Text Lo
 ```text
 [INFO] [moveit_planning_node]: Publishing static transform: [world -> root]
 [INFO] [moveit_planning_node]: Publishing static transform: [ur_module/base_link -> base_link]
-[INFO] [moveit_planning_node]: MoveIt Planning Service started.
+[INFO] [moveit_planning_node]: MoveIt Planning Service started (robot_config: 'omts').
 [INFO] [moveit_planning_node]: Ready to receive requests at:
 [INFO] [moveit_planning_node]:  - motion_planning/get_motion_plan
 [INFO] [moveit_planning_node]:  - grasp_planning/plan_grasps (action)
@@ -271,7 +274,7 @@ sudo ln -s /usr/lib/x86_64-linux-gnu/libxml2.so.16 /usr/lib/x86_64-linux-gnu/lib
 ## Next Steps
 
 * **Motion planning**: `moveit_plan_motion_skill`, and motion planning capabilities on `moveit_planning_service`.
-* **Single source of truth for hardware descriptions**: use upstream URDFs instead of vendoring them in `robot_hardware_description`.
+* **Single source of truth for hardware descriptions**: use upstream URDFs instead of vendoring them in `robot_hardware_descriptions`.
 * **Skills to use actions**: interaction between skills and services should be done via ROS actions, instead of services.
 * **Pixi workspace migration**: better dependency control and faster build times.
 * **Abstract hardware definitions**: to better support different hardware configurations.

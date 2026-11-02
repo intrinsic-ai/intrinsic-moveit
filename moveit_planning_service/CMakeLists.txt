@@ -263,7 +263,20 @@ if(BUILD_TESTING)
     test/test_grasp_planning_integration.test.py
     ENV
       RMW_IMPLEMENTATION=rmw_zenoh_cpp
+      ROS_DOMAIN_ID=17
     TIMEOUT 120
+  )
+  add_launch_test(
+    test/test_grasp_planning_integration_lab_bb_01.test.py
+    ENV
+      RMW_IMPLEMENTATION=rmw_zenoh_cpp
+      ROS_DOMAIN_ID=18
+    TIMEOUT 120
+  )
+  set_tests_properties(
+    test_test_grasp_planning_integration.test.py
+    test_test_grasp_planning_integration_lab_bb_01.test.py
+    PROPERTIES RESOURCE_LOCK moveit_launch_integration
   )
 endif(BUILD_TESTING)
 
