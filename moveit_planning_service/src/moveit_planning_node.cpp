@@ -402,6 +402,23 @@ intrinsic_proto::config::RuntimeContext GetRuntimeContext() {
   return runtime_context;
 }
 
+std::string TrimAndNormalizeRobotConfig(const std::string& raw) {
+  const auto first = raw.find_first_not_of(" \t\r\n");
+  if (first == std::string::npos) {
+    return "";
+  }
+  const auto last = raw.find_last_not_of(" \t\r\n");
+  std::string normalized = raw.substr(first, last - first + 1);
+  std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+  std::replace(normalized.begin(), normalized.end(), '-', '_');
+  return normalized;
+}
+
+bool IsSupportedRobotConfig(const std::string& normalized) {
+  return normalized == "omts" || normalized == "lab_bb_01";
+}
+
 int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
 
@@ -511,13 +528,15 @@ int main(int argc, char** argv) {
       node->set_parameter(
           rclcpp::Parameter("world_tf_prefix", config.world_tf_prefix()));
     }
-    if (node->get_parameter("robot_config").as_string().empty() &&
-        config.has_robot_config() && !config.robot_config().empty()) {
-      std::string normalized = config.robot_config();
-      std::transform(normalized.begin(), normalized.end(), normalized.begin(),
-                     [](unsigned char c) { return std::tolower(c); });
-      std::replace(normalized.begin(), normalized.end(), '-', '_');
-      node->set_parameter(rclcpp::Parameter("robot_config", normalized));
+    if (TrimAndNormalizeRobotConfig(
+            node->get_parameter("robot_config").as_string())
+            .empty() &&
+        config.has_robot_config()) {
+      const std::string from_proto =
+          TrimAndNormalizeRobotConfig(config.robot_config());
+      if (!from_proto.empty()) {
+        node->set_parameter(rclcpp::Parameter("robot_config", from_proto));
+      }
     }
     if (!config.robot_base_frame_id().empty()) {
       node->set_parameter(rclcpp::Parameter("robot_base_frame_id",
@@ -556,9 +575,21 @@ int main(int argc, char** argv) {
     }
   }
 
-  if (node->get_parameter("robot_config").as_string().empty()) {
-    node->set_parameter(rclcpp::Parameter("robot_config", "omts"));
+  std::string resolved_robot_config = TrimAndNormalizeRobotConfig(
+      node->get_parameter("robot_config").as_string());
+  if (resolved_robot_config.empty()) {
+    resolved_robot_config = "omts";
   }
+  if (!IsSupportedRobotConfig(resolved_robot_config)) {
+    RCLCPP_FATAL(
+        node->get_logger(),
+        "Unsupported robot_config '%s'. Supported configurations: omts, "
+        "lab_bb_01",
+        resolved_robot_config.c_str());
+    rclcpp::shutdown();
+    return EXIT_FAILURE;
+  }
+  node->set_parameter(rclcpp::Parameter("robot_config", resolved_robot_config));
 
   // Populate strongly-typed config structs from resolved node parameters
   moveit_planning_service::StaticTransformsConfig tf_config;

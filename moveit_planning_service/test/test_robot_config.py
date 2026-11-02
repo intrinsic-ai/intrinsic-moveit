@@ -147,35 +147,59 @@ def test_resolve_robot_config_cli_overrides_runtime_pb(tmp_path: Path):
     assert resolve_robot_config("lab-bb-01", str(pb_omts)) == "lab_bb_01"
 
 
-def test_resolve_robot_config_fallbacks_to_default(tmp_path: Path):
-    # 1. Missing file
+def test_resolve_robot_config_fallbacks_to_default(tmp_path: Path, capsys):
+    # 1. Missing file -> silent fallback
+    capsys.readouterr()
     missing = tmp_path / "does_not_exist.pb"
     assert resolve_robot_config("", str(missing)) == "omts"
+    assert capsys.readouterr().err == ""
 
-    # 2. Unset robot_config field in MoveItPlanningServiceConfig
+    # 2. Unset robot_config field in MoveItPlanningServiceConfig -> silent fallback
     unset_pb = _write_runtime_context_pb(
         tmp_path / "unset.pb", robot_config_value=None
     )
+    capsys.readouterr()
     assert resolve_robot_config("", str(unset_pb)) == "omts"
+    assert capsys.readouterr().err == ""
 
-    # 3. Empty/whitespace robot_config in MoveItPlanningServiceConfig
+    # 3. Empty/whitespace robot_config in MoveItPlanningServiceConfig -> silent fallback
     blank_pb = _write_runtime_context_pb(
         tmp_path / "blank.pb", robot_config_value="   "
     )
+    capsys.readouterr()
     assert resolve_robot_config("", str(blank_pb)) == "omts"
+    assert capsys.readouterr().err == ""
 
-    # 4. Corrupt protobuf bytes
-    corrupt_pb = tmp_path / "corrupt.pb"
-    corrupt_pb.write_bytes(b"\xff\x00\xfe\x01not-valid-protobuf")
-    assert resolve_robot_config("", str(corrupt_pb)) == "omts"
-
-    # 5. RuntimeContext packing an unrelated Any type_url
+    # 4. RuntimeContext packing an unrelated Any type_url -> silent fallback
     unrelated_pb = _write_runtime_context_pb(
         tmp_path / "unrelated.pb",
         raw_any_type_url="type.googleapis.com/other.ServiceConfig",
         raw_any_value=b"",
     )
+    capsys.readouterr()
     assert resolve_robot_config("", str(unrelated_pb)) == "omts"
+    assert capsys.readouterr().err == ""
+
+    # 5. Corrupt protobuf bytes -> fallback with explicit warning
+    corrupt_pb = tmp_path / "corrupt.pb"
+    corrupt_pb.write_bytes(b"\xff\x00\xfe\x01not-valid-protobuf")
+    capsys.readouterr()
+    assert resolve_robot_config("", str(corrupt_pb)) == "omts"
+    corrupt_err = capsys.readouterr().err
+    assert "corrupt.pb" in corrupt_err
+    assert "omts" in corrupt_err
+
+    # 6. Missing descriptor files with non-empty runtime_config.pb -> fallback with explicit warning
+    valid_pb = _write_runtime_context_pb(
+        tmp_path / "valid_lab.pb", robot_config_value="lab_bb_01"
+    )
+    capsys.readouterr()
+    assert (
+        read_robot_config_from_runtime_pb(str(valid_pb), descriptor_paths=[])
+        == ""
+    )
+    missing_desc_err = capsys.readouterr().err
+    assert "Failed to load protobuf descriptors" in missing_desc_err
 
 
 def test_resolve_robot_config_invalid_in_runtime_pb_raises(tmp_path: Path):
@@ -291,3 +315,37 @@ def test_grasp_planning_test_launch_selects_expected_moveit_config():
             demo_launch.generate_launch_description(),
             {"robot_config": "nonexistent"},
         )
+
+
+def test_moveit_configs_joint_limits_match_workcells():
+    import math
+    from moveit_configs_utils import MoveItConfigsBuilder
+
+    omts_cfg = MoveItConfigsBuilder(
+        "omts", package_name="omts_moveit_config"
+    ).to_moveit_configs()
+    omts_limits = omts_cfg.joint_limits["robot_description_planning"][
+        "joint_limits"
+    ]
+    for wrist in ("wrist_1_joint", "wrist_2_joint", "wrist_3_joint"):
+        assert omts_limits[wrist]["max_velocity"] == pytest.approx(
+            math.pi, rel=1e-6
+        )
+
+    lab_cfg = MoveItConfigsBuilder(
+        "lab_bb_01", package_name="lab_bb_01_moveit_config"
+    ).to_moveit_configs()
+    lab_limits = lab_cfg.joint_limits["robot_description_planning"][
+        "joint_limits"
+    ]
+    for wrist in ("wrist_1_joint", "wrist_2_joint", "wrist_3_joint"):
+        assert lab_limits[wrist]["max_velocity"] == pytest.approx(
+            2.0 * math.pi, rel=1e-6
+        )
+    assert lab_limits["wrist_3_joint"]["has_position_limits"] is True
+    assert lab_limits["wrist_3_joint"]["min_position"] == pytest.approx(
+        -2.0 * math.pi, rel=1e-6
+    )
+    assert lab_limits["wrist_3_joint"]["max_position"] == pytest.approx(
+        2.0 * math.pi, rel=1e-6
+    )
