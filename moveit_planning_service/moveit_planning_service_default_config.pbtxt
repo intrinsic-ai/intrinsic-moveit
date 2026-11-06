@@ -28,6 +28,7 @@
     "ecat_ft_hal_module_with_adapters_with_sim"
   ]
 
+  robot_config: "omts"
   robot_base_frame_id: "ur_module/base_link"
   publish_world_root_tf: true
   publish_robot_base_tf: true

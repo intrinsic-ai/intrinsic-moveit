@@ -15,7 +15,9 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
+#include <iostream>
 #include <memory>
 #include <moveit_msgs/msg/move_it_error_codes.hpp>
 #include <moveit_msgs/msg/planning_scene_components.hpp>
@@ -27,6 +29,7 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -39,6 +42,7 @@
 #include "moveit_planning_service/grasp_planning_pipeline.hpp"
 #include "moveit_planning_service/moveit_scene_synchronizer.hpp"
 #include "moveit_planning_service/publish_static_transforms.hpp"
+#include "moveit_planning_service/robot_config.hpp"
 #include "rclcpp/experimental/executors/events_executor/events_executor.hpp"
 
 using PlanGraspsAction = moveit_planning_interfaces::action::PlanGrasps;
@@ -446,6 +450,7 @@ int main(int argc, char** argv) {
   node->declare_parameter<bool>("publish_world_root_tf", true);
   node->declare_parameter<bool>("publish_robot_base_tf", true);
   node->declare_parameter<std::string>("world_tf_prefix", "world");
+  node->declare_parameter<std::string>("robot_config", "");
   node->declare_parameter<std::string>("robot_base_frame_id",
                                        "ur_module/base_link");
   node->declare_parameter<std::string>("tf_prefix", "");
@@ -546,6 +551,34 @@ int main(int argc, char** argv) {
                                             config.world_sync_interval_sec()));
     }
   }
+
+  const std::optional<std::string_view> proto_robot_config =
+      (has_runtime_config && config.has_robot_config())
+          ? std::make_optional<std::string_view>(config.robot_config())
+          : std::nullopt;
+  const auto robot_config_resolution =
+      moveit_planning_service::ResolveRobotConfig(
+          node->get_parameter("robot_config").as_string(), proto_robot_config);
+  if (robot_config_resolution.param_overrides_proto) {
+    RCLCPP_WARN(
+        node->get_logger(),
+        "ROS parameter robot_config ('%s') differs from runtime_config.pb "
+        "robot_config ('%s'); using '%s'.",
+        robot_config_resolution.normalized_param.c_str(),
+        robot_config_resolution.normalized_proto.c_str(),
+        robot_config_resolution.resolved_config.c_str());
+  }
+  if (!robot_config_resolution.is_supported) {
+    RCLCPP_FATAL(
+        node->get_logger(),
+        "Unsupported robot_config '%s'. Supported configurations: %s",
+        robot_config_resolution.resolved_config.c_str(),
+        moveit_planning_service::SupportedRobotConfigsString().c_str());
+    rclcpp::shutdown();
+    return EXIT_FAILURE;
+  }
+  node->set_parameter(rclcpp::Parameter(
+      "robot_config", robot_config_resolution.resolved_config));
 
   // Populate strongly-typed config structs from resolved node parameters
   moveit_planning_service::StaticTransformsConfig tf_config;
@@ -707,7 +740,9 @@ int main(int argc, char** argv) {
       rcl_action_server_get_default_options(),
       planning_services_callback_group);
 
-  RCLCPP_INFO(node->get_logger(), "MoveIt Planning Service started.");
+  RCLCPP_INFO(node->get_logger(),
+              "MoveIt Planning Service started (robot_config: '%s').",
+              node->get_parameter("robot_config").as_string().c_str());
   RCLCPP_INFO(node->get_logger(), "Ready to receive requests at:");
   RCLCPP_INFO(node->get_logger(), " - motion_planning/get_motion_plan");
   RCLCPP_INFO(node->get_logger(), " - grasp_planning/plan_grasps (action)");

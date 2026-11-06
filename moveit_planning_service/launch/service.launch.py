@@ -16,31 +16,239 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
-from launch.conditions import IfCondition, UnlessCondition
+from launch.actions import DeclareLaunchArgument
+from launch.actions import IncludeLaunchDescription
+from launch.actions import LogInfo
+from launch.actions import OpaqueFunction
+from launch.conditions import IfCondition
+from launch.conditions import UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from moveit_configs_utils import MoveItConfigsBuilder
 
+from moveit_planning_service.robot_config import DEFAULT_RUNTIME_CONFIG_PATH
+from moveit_planning_service.robot_config import resolve_robot_config
+
+
+def build_service_launch_actions(
+    context, runtime_config_path: str | None = None
+):
+    if runtime_config_path is None:
+        runtime_config_path = DEFAULT_RUNTIME_CONFIG_PATH
+    cli_robot_config = LaunchConfiguration("robot_config").perform(context)
+    resolved_config = resolve_robot_config(
+        cli_robot_config=cli_robot_config,
+        runtime_config_path=runtime_config_path,
+    )
+    moveit_pkg_name = f"{resolved_config}_moveit_config"
+
+    moveit_config = MoveItConfigsBuilder(
+        resolved_config, package_name=moveit_pkg_name
+    ).to_moveit_configs()
+
+    planning_params = [
+        moveit_config.to_dict(),
+        {
+            "robot_config": resolved_config,
+            "intrinsic_core_ingress_address": ParameterValue(
+                LaunchConfiguration("intrinsic_core_ingress_address"),
+                value_type=str,
+            ),
+            "zenoh_router_address": ParameterValue(
+                LaunchConfiguration("zenoh_router_address"),
+                value_type=str,
+            ),
+            "ros_service_call_timeout_sec": ParameterValue(
+                LaunchConfiguration("ros_service_call_timeout_sec"),
+                value_type=float,
+            ),
+            "add_collision_retry_interval_sec": ParameterValue(
+                LaunchConfiguration("add_collision_retry_interval_sec"),
+                value_type=float,
+            ),
+            "expect_collision_objects": ParameterValue(
+                LaunchConfiguration("expect_collision_objects"),
+                value_type=bool,
+            ),
+            "use_mock_hardware": ParameterValue(
+                LaunchConfiguration("use_mock_hardware"),
+                value_type=bool,
+            ),
+            "publish_world_root_tf": ParameterValue(
+                LaunchConfiguration("publish_world_root_tf"),
+                value_type=bool,
+            ),
+            "publish_robot_base_tf": ParameterValue(
+                LaunchConfiguration("publish_robot_base_tf"),
+                value_type=bool,
+            ),
+            "world_sync_interval_sec": ParameterValue(
+                LaunchConfiguration("world_sync_interval_sec"),
+                value_type=float,
+            ),
+            "use_sim_time": ParameterValue(
+                LaunchConfiguration("use_sim_time"),
+                value_type=bool,
+            ),
+        },
+    ]
+
+    moveit_planning_node = Node(
+        package="moveit_planning_service",
+        executable="moveit_planning_node",
+        name="moveit_planning_node",
+        respawn=True,
+        output="both",
+        parameters=planning_params,
+    )
+
+    robot_moveit_config_path = get_package_share_directory(moveit_pkg_name)
+
+    rsp_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(robot_moveit_config_path, "launch", "rsp.launch.py")
+        ),
+        launch_arguments={
+            "use_sim_time": LaunchConfiguration("use_sim_time")
+        }.items(),
+    )
+
+    move_group_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                robot_moveit_config_path, "launch", "move_group.launch.py"
+            )
+        ),
+        launch_arguments={
+            "use_sim_time": LaunchConfiguration("use_sim_time")
+        }.items(),
+    )
+
+    static_vj_launch_path = os.path.join(
+        robot_moveit_config_path, "launch", "static_virtual_joint_tfs.launch.py"
+    )
+    static_vj_launch = None
+    if os.path.exists(static_vj_launch_path):
+        static_vj_launch = IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(static_vj_launch_path),
+            launch_arguments={
+                "use_sim_time": LaunchConfiguration("use_sim_time")
+            }.items(),
+            condition=IfCondition(LaunchConfiguration("use_mock_hardware")),
+        )
+
+    ros2_control_node = Node(
+        package="controller_manager",
+        executable="ros2_control_node",
+        parameters=[
+            str(moveit_config.package_path / "config/ros2_controllers.yaml"),
+        ],
+        remappings=[
+            ("/controller_manager/robot_description", "/robot_description"),
+        ],
+        condition=IfCondition(LaunchConfiguration("use_mock_hardware")),
+        output="both",
+    )
+
+    spawn_controllers_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                robot_moveit_config_path,
+                "launch",
+                "spawn_controllers.launch.py",
+            )
+        ),
+        condition=IfCondition(LaunchConfiguration("use_mock_hardware")),
+    )
+
+    rviz_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                robot_moveit_config_path, "launch", "moveit_rviz.launch.py"
+            )
+        ),
+        launch_arguments={
+            "rviz_config": LaunchConfiguration("rviz_config")
+        }.items(),
+        condition=UnlessCondition(LaunchConfiguration("headless")),
+    )
+
+    status_monitor_node = Node(
+        package="moveit_planning_service",
+        executable="status_monitor",
+        name="status_monitor",
+        respawn=True,
+        output="both",
+        parameters=[
+            {
+                "ros_service_call_timeout_sec": ParameterValue(
+                    LaunchConfiguration("ros_service_call_timeout_sec"),
+                    value_type=float,
+                ),
+                "expect_collision_objects": ParameterValue(
+                    LaunchConfiguration("expect_collision_objects"),
+                    value_type=bool,
+                ),
+                "use_mock_hardware": ParameterValue(
+                    LaunchConfiguration("use_mock_hardware"),
+                    value_type=bool,
+                ),
+                "use_sim_time": ParameterValue(
+                    LaunchConfiguration("use_sim_time"),
+                    value_type=bool,
+                ),
+            },
+        ],
+        condition=IfCondition(
+            LaunchConfiguration("start_service_status_monitor")
+        ),
+    )
+
+    actions = [
+        LogInfo(
+            msg=(
+                f"[service.launch.py] Loading robot_config='{resolved_config}' "
+                f"from package '{moveit_pkg_name}'"
+            )
+        ),
+        rsp_launch,
+        move_group_launch,
+        ros2_control_node,
+        spawn_controllers_launch,
+        moveit_planning_node,
+        status_monitor_node,
+        rviz_launch,
+    ]
+    if static_vj_launch is not None:
+        actions.append(static_vj_launch)
+    return actions
+
 
 def generate_launch_description():
-    # Declare launch argument for headless mode
+    robot_config_arg = DeclareLaunchArgument(
+        "robot_config",
+        default_value="",
+        description=(
+            "Workcell robot configuration to load ('omts' or 'lab_bb_01'; "
+            "'lab-bb-01' is also accepted). When empty, falls back to "
+            "/etc/intrinsic/runtime_config.pb or defaults to 'omts'."
+        ),
+    )
+
     headless_arg = DeclareLaunchArgument(
         "headless",
         default_value="true",
         description="Whether to run in headless mode. Defaults to true. If false, runs locally with rviz",
     )
 
-    # Declare launch argument for starting the service status monitor
     start_service_status_monitor_arg = DeclareLaunchArgument(
         "start_service_status_monitor",
         default_value="true",
         description="Whether to start the service status monitor. Defaults to true, which starts reporting service status to the platform",
     )
 
-    # Declare launch argument for mock hardware mode
     use_mock_hardware_arg = DeclareLaunchArgument(
         "use_mock_hardware",
         default_value="false",
@@ -95,125 +303,6 @@ def generate_launch_description():
         description="Interval in seconds for periodic background synchronization of World objects",
     )
 
-    # Load MoveIt configuration from robot_hardware_moveit_config
-    moveit_config = MoveItConfigsBuilder(
-        "robot_hardware", package_name="robot_hardware_moveit_config"
-    ).to_moveit_configs()
-
-    planning_params = [
-        moveit_config.to_dict(),
-        {
-            "intrinsic_core_ingress_address": ParameterValue(
-                LaunchConfiguration("intrinsic_core_ingress_address"),
-                value_type=str,
-            ),
-            "zenoh_router_address": ParameterValue(
-                LaunchConfiguration("zenoh_router_address"),
-                value_type=str,
-            ),
-            "ros_service_call_timeout_sec": ParameterValue(
-                LaunchConfiguration("ros_service_call_timeout_sec"),
-                value_type=float,
-            ),
-            "add_collision_retry_interval_sec": ParameterValue(
-                LaunchConfiguration("add_collision_retry_interval_sec"),
-                value_type=float,
-            ),
-            "expect_collision_objects": ParameterValue(
-                LaunchConfiguration("expect_collision_objects"),
-                value_type=bool,
-            ),
-            "use_mock_hardware": ParameterValue(
-                LaunchConfiguration("use_mock_hardware"),
-                value_type=bool,
-            ),
-            "publish_world_root_tf": ParameterValue(
-                LaunchConfiguration("publish_world_root_tf"),
-                value_type=bool,
-            ),
-            "publish_robot_base_tf": ParameterValue(
-                LaunchConfiguration("publish_robot_base_tf"),
-                value_type=bool,
-            ),
-            "world_sync_interval_sec": ParameterValue(
-                LaunchConfiguration("world_sync_interval_sec"),
-                value_type=float,
-            ),
-            "use_sim_time": ParameterValue(
-                LaunchConfiguration("use_sim_time"),
-                value_type=bool,
-            ),
-        },
-    ]
-
-    # Main planning service node with MoveIt config parameters
-    moveit_planning_node = Node(
-        package="moveit_planning_service",
-        executable="moveit_planning_node",
-        name="moveit_planning_node",
-        respawn=True,
-        output="both",
-        parameters=planning_params,
-    )
-
-    # Path to robot_hardware_moveit_config launch files
-    robot_moveit_config_path = get_package_share_directory(
-        "robot_hardware_moveit_config"
-    )
-
-    # Include Robot State Publisher
-    rsp_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(robot_moveit_config_path, "launch", "rsp.launch.py")
-        ),
-        launch_arguments={"use_sim_time": LaunchConfiguration("use_sim_time")}.items(),
-    )
-
-    # Include Move Group action server & planning scene manager
-    move_group_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(robot_moveit_config_path, "launch", "move_group.launch.py")
-        ),
-        launch_arguments={"use_sim_time": LaunchConfiguration("use_sim_time")}.items(),
-    )
-
-    # Include Static Virtual Joint TFs if launch file exists (only active when using mock hardware)
-    static_vj_launch_path = os.path.join(
-        robot_moveit_config_path, "launch", "static_virtual_joint_tfs.launch.py"
-    )
-    static_vj_launch = None
-    if os.path.exists(static_vj_launch_path):
-        static_vj_launch = IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(static_vj_launch_path),
-            launch_arguments={"use_sim_time": LaunchConfiguration("use_sim_time")}.items(),
-            condition=IfCondition(LaunchConfiguration("use_mock_hardware")),
-        )
-
-    # ros2_control node (only active when using mock hardware)
-    ros2_control_node = Node(
-        package="controller_manager",
-        executable="ros2_control_node",
-        parameters=[
-            str(moveit_config.package_path / "config/ros2_controllers.yaml"),
-        ],
-        remappings=[
-            ("/controller_manager/robot_description", "/robot_description"),
-        ],
-        condition=IfCondition(LaunchConfiguration("use_mock_hardware")),
-        output="both",
-    )
-
-    # Spawn controllers (only active when using mock hardware)
-    spawn_controllers_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(
-                robot_moveit_config_path, "launch", "spawn_controllers.launch.py"
-            )
-        ),
-        condition=IfCondition(LaunchConfiguration("use_mock_hardware")),
-    )
-
-    # Declare launch argument for custom RViz configuration
     rviz_config_arg = DeclareLaunchArgument(
         "rviz_config",
         default_value=os.path.join(
@@ -224,78 +313,28 @@ def generate_launch_description():
         description="Path to RViz config file",
     )
 
-    # Include RViz visualization (skipped if headless is true)
-    rviz_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(
-                robot_moveit_config_path, "launch", "moveit_rviz.launch.py"
-            )
-        ),
-        launch_arguments={"rviz_config": LaunchConfiguration("rviz_config")}.items(),
-        condition=UnlessCondition(LaunchConfiguration("headless")),
-    )
-
-    # Declare launch argument for use_sim_time
     use_sim_time_arg = DeclareLaunchArgument(
         "use_sim_time",
         default_value="false",
         description="Use simulation clock if true",
     )
 
-    # Status monitor node providing ServiceState gRPC server (active in headless/deployed mode)
-    status_monitor_node = Node(
-        package="moveit_planning_service",
-        executable="status_monitor",
-        name="status_monitor",
-        respawn=True,
-        output="both",
-        parameters=[
-            {
-                "ros_service_call_timeout_sec": ParameterValue(
-                    LaunchConfiguration("ros_service_call_timeout_sec"),
-                    value_type=float,
-                ),
-                "expect_collision_objects": ParameterValue(
-                    LaunchConfiguration("expect_collision_objects"),
-                    value_type=bool,
-                ),
-                "use_mock_hardware": ParameterValue(
-                    LaunchConfiguration("use_mock_hardware"),
-                    value_type=bool,
-                ),
-                "use_sim_time": ParameterValue(
-                    LaunchConfiguration("use_sim_time"),
-                    value_type=bool,
-                ),
-            },
-        ],
-        condition=IfCondition(LaunchConfiguration("start_service_status_monitor")),
+    return LaunchDescription(
+        [
+            robot_config_arg,
+            headless_arg,
+            start_service_status_monitor_arg,
+            rviz_config_arg,
+            use_mock_hardware_arg,
+            use_sim_time_arg,
+            intrinsic_core_ingress_address_arg,
+            zenoh_router_address_arg,
+            ros_service_call_timeout_sec_arg,
+            add_collision_retry_interval_sec_arg,
+            expect_collision_objects_arg,
+            publish_world_root_tf_arg,
+            publish_robot_base_tf_arg,
+            world_sync_interval_sec_arg,
+            OpaqueFunction(function=build_service_launch_actions),
+        ]
     )
-
-    launch_actions = [
-        headless_arg,
-        start_service_status_monitor_arg,
-        rviz_config_arg,
-        use_mock_hardware_arg,
-        use_sim_time_arg,
-        intrinsic_core_ingress_address_arg,
-        zenoh_router_address_arg,
-        ros_service_call_timeout_sec_arg,
-        add_collision_retry_interval_sec_arg,
-        expect_collision_objects_arg,
-        publish_world_root_tf_arg,
-        publish_robot_base_tf_arg,
-        world_sync_interval_sec_arg,
-        rsp_launch,
-        move_group_launch,
-        ros2_control_node,
-        spawn_controllers_launch,
-        moveit_planning_node,
-        status_monitor_node,
-        rviz_launch,
-    ]
-
-    if static_vj_launch is not None:
-        launch_actions.append(static_vj_launch)
-
-    return LaunchDescription(launch_actions)

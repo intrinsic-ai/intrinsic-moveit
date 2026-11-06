@@ -43,6 +43,13 @@ make add_moveit_planning_service
 > [!NOTE]
 > **Upstream Bridge Requirement**: The active cluster solution requires a running `flowstate_ros_bridge` service configured for the workcell. For instructions on applying the configuration for Flowstate (via the Flowstate platform UI) or Intrinsic Core (via `inctl` or Bazel), see [`docs/flowstate_ros_bridge_configuration.md`](./flowstate_ros_bridge_configuration.md).
 
+### Selecting the Workcell Robot Configuration
+
+A single `moveit_planning_service` bundle packages both supported workcell configurations (`omts` with UR5e and `lab_bb_01` with UR3e). At service startup, `service.launch.py` resolves `robot_config` from `/etc/intrinsic/runtime_config.pb` (`MoveItPlanningServiceConfig.robot_config`, defaulting to `"omts"`):
+
+* **OMTS (UR5e, default)**: Set `robot_config: "omts"` (default in [`moveit_planning_service_default_config.pbtxt`](../moveit_planning_service/moveit_planning_service_default_config.pbtxt)).
+* **`lab-bb-01` (UR3e)**: Set `robot_config: "lab_bb_01"` (or `"lab-bb-01"`) in the `moveit_planning_service` instance configuration via the Flowstate Service Configuration UI or via `--config` when adding the service with `inctl`.
+
 Clean up when done:
 
 ```bash
