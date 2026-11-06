@@ -160,13 +160,14 @@ def test_lab_bb_01_matches_intrinsic_omts_ur3e_and_wrist_3_bounds():
     )
 
 
-def test_vendored_ur3e_docs_and_licenses_installed():
-    """Vendored UR3e directory includes README and upstream BSD-3-Clause LICENSE files."""
+@pytest.mark.parametrize('ur_model', ['ur5e', 'ur3e'])
+def test_vendored_ur_docs_and_licenses_installed(ur_model: str):
+    """Vendored UR directories include README and upstream BSD-3-Clause LICENSE files."""
     share_dir = Path(get_package_share_directory(PKG_NAME))
-    ur3e_dir = share_dir / 'urdf' / 'ur3e'
-    assert (ur3e_dir / 'README.md').is_file()
-    assert (ur3e_dir / 'visual' / 'LICENSE').is_file()
-    assert (ur3e_dir / 'collision' / 'LICENSE').is_file()
+    ur_dir = share_dir / 'urdf' / ur_model
+    assert (ur_dir / 'README.md').is_file()
+    assert (ur_dir / 'visual' / 'LICENSE').is_file()
+    assert (ur_dir / 'collision' / 'LICENSE').is_file()
 
 
 def test_display_launch_normalizes_and_validates_robot_config():

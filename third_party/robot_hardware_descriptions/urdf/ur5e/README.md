@@ -13,11 +13,14 @@ This directory contains the vendored UR5e robot hardware description, derived fr
 urdf/ur5e/
 ├── README.md                                    # This documentation
 ├── ur5e_macro.xacro                             # Main UR5e robot Xacro macro for ROS 2 / MoveIt
-├── ur5e.urdf                                    # Intrinsic-derived raw URDF model
-├── visual/                                      # Intrinsic visual DAE meshes
-├── collision/                                   # Intrinsic collision STL meshes
-└── model.config                                 # Model configuration manifest
+├── visual/                                      # Visual DAE meshes + upstream BSD-3-Clause LICENSE
+└── collision/                                   # Collision STL meshes + BSD-3-Clause LICENSE
 ```
+
+### Licensing & Provenance
+
+- `ur5e_macro.xacro` is licensed under Apache-2.0 (`Copyright 2026 Intrinsic Innovation LLC`).
+- Visual and collision meshes under `visual/` and `collision/` are retained with their upstream Universal Robots **BSD-3-Clause** `LICENSE` files (`visual/LICENSE` and `collision/LICENSE`), as vendored in `intrinsic-core/third_party/universal_robots/ur5e/`.
 
 ---
 
@@ -66,7 +69,7 @@ The upstream open-source ROS URDF follows **Denavit-Hartenberg (DH)** parameter 
 | **`elbow_joint`** | Origin: `xyz="-0.425 0 0" rpy="0 0 0"`<br>Axis: `xyz="0 0 1"` | Origin: `xyz="0.425 0 0" rpy="0 0 0"`<br>Axis: `xyz="0 1 0"` | **Sign Mismatch:** Upstream translation is `x = -0.425` due to DH frame rotation. Intrinsic translation is `x = +0.425` along local arm extension. Axis is `[0, 1, 0]`. |
 | **`wrist_1_joint`** | Origin: `xyz="-0.3922 0 0.1333" rpy="0 0 0"`<br>Axis: `xyz="0 0 1"` | Origin: `xyz="0.3922 0 0" rpy="0 0 0"`<br>Axis: `xyz="0 1 0"` | **Translation Offset:** Upstream includes `z = 0.1333` offset at `wrist_1`. Intrinsic places `y = 0.1333` offset at `wrist_2_joint`. |
 | **`wrist_2_joint`** | Origin: `xyz="0 -0.0997 0" rpy="1.570796327 0 0"`<br>Axis: `xyz="0 0 1"` | Origin: `xyz="0 0.1333 -0.0997" rpy="0 0 0"`<br>Axis: `xyz="0 0 -1"` | **Axis Sign Inversion:** Upstream axis is `+Z`. Intrinsic axis is **`-Z` (`xyz="0 0 -1"`)**. |
-| **`wrist_3_joint`** | Origin: `xyz="0 0.0996 0" rpy="1.570796326 3.14159 3.14159"`<br>Axis: `xyz="0 0 1"` | Origin: `xyz="0 0.0996 0" rpy="-1.570796 0 0"`<br>Axis: `xyz="0 0 1"` | Roll is $-90^\circ$ in Intrinsic vs $+90^\circ$ in upstream ROS URDF. |
+| **`wrist_3_joint`** | Origin: `xyz="0 0.0996 0" rpy="1.570796326 3.14159 3.14159"`<br>Axis: `xyz="0 0 1"` | Origin: `xyz="0 0.0996 0" rpy="-1.57079632679 3.14159265359 0"`<br>Axis: `xyz="0 0 1"` | Roll is $-90^\circ$ with $180^\circ$ pitch (`rpy="-pi/2 pi 0"`, zero yaw) in Intrinsic vs $+90^\circ$ roll with $180^\circ$ pitch and yaw (`rpy="pi/2 pi pi"`) in upstream ROS URDF. |
 
 ---
 

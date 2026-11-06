@@ -27,15 +27,22 @@ limitations under the License.
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>xacro</depend>
-  <depend>ur_description</depend>
   <depend>robot_state_publisher</depend>
   <depend>rviz2</depend>
 
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>joint_state_publisher_gui</exec_depend>
+  <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
 
   <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>ament_index_python</test_depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
+  <test_depend>launch</test_depend>
+  <test_depend>launch_ros</test_depend>
+  <test_depend>python3-pytest</test_depend>
+  <test_depend>xacro</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
