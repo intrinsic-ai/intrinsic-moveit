@@ -33,8 +33,10 @@ from moveit_planning_service.robot_config import resolve_robot_config
 
 
 def build_service_launch_actions(
-    context, runtime_config_path: str = DEFAULT_RUNTIME_CONFIG_PATH
+    context, runtime_config_path: str | None = None
 ):
+    if runtime_config_path is None:
+        runtime_config_path = DEFAULT_RUNTIME_CONFIG_PATH
     cli_robot_config = LaunchConfiguration("robot_config").perform(context)
     resolved_config = resolve_robot_config(
         cli_robot_config=cli_robot_config,

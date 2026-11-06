@@ -15,6 +15,7 @@
 """Launch RViz visualization for omts or lab_bb_01 robot hardware descriptions."""
 
 import os
+import shlex
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -49,7 +50,7 @@ def _launch_setup(context, *args, **kwargs):
     rviz_config_file = os.path.join(pkg_share, 'rviz', 'display.rviz')
 
     robot_description = ParameterValue(
-        Command(['xacro ', xacro_file]),
+        Command(['xacro ', shlex.quote(xacro_file)]),
         value_type=str,
     )
 

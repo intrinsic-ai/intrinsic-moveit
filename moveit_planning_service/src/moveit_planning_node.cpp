@@ -15,7 +15,9 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
+#include <iostream>
 #include <memory>
 #include <moveit_msgs/msg/move_it_error_codes.hpp>
 #include <moveit_msgs/msg/planning_scene_components.hpp>
@@ -27,6 +29,7 @@
 #include <rclcpp_action/rclcpp_action.hpp>
 #include <std_srvs/srv/trigger.hpp>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -39,6 +42,7 @@
 #include "moveit_planning_service/grasp_planning_pipeline.hpp"
 #include "moveit_planning_service/moveit_scene_synchronizer.hpp"
 #include "moveit_planning_service/publish_static_transforms.hpp"
+#include "moveit_planning_service/robot_config.hpp"
 #include "rclcpp/experimental/executors/events_executor/events_executor.hpp"
 
 using PlanGraspsAction = moveit_planning_interfaces::action::PlanGrasps;
@@ -402,23 +406,6 @@ intrinsic_proto::config::RuntimeContext GetRuntimeContext() {
   return runtime_context;
 }
 
-std::string TrimAndNormalizeRobotConfig(const std::string& raw) {
-  const auto first = raw.find_first_not_of(" \t\r\n");
-  if (first == std::string::npos) {
-    return "";
-  }
-  const auto last = raw.find_last_not_of(" \t\r\n");
-  std::string normalized = raw.substr(first, last - first + 1);
-  std::transform(normalized.begin(), normalized.end(), normalized.begin(),
-                 [](unsigned char c) { return std::tolower(c); });
-  std::replace(normalized.begin(), normalized.end(), '-', '_');
-  return normalized;
-}
-
-bool IsSupportedRobotConfig(const std::string& normalized) {
-  return normalized == "omts" || normalized == "lab_bb_01";
-}
-
 int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
 
@@ -528,16 +515,6 @@ int main(int argc, char** argv) {
       node->set_parameter(
           rclcpp::Parameter("world_tf_prefix", config.world_tf_prefix()));
     }
-    if (TrimAndNormalizeRobotConfig(
-            node->get_parameter("robot_config").as_string())
-            .empty() &&
-        config.has_robot_config()) {
-      const std::string from_proto =
-          TrimAndNormalizeRobotConfig(config.robot_config());
-      if (!from_proto.empty()) {
-        node->set_parameter(rclcpp::Parameter("robot_config", from_proto));
-      }
-    }
     if (!config.robot_base_frame_id().empty()) {
       node->set_parameter(rclcpp::Parameter("robot_base_frame_id",
                                             config.robot_base_frame_id()));
@@ -575,21 +552,33 @@ int main(int argc, char** argv) {
     }
   }
 
-  std::string resolved_robot_config = TrimAndNormalizeRobotConfig(
-      node->get_parameter("robot_config").as_string());
-  if (resolved_robot_config.empty()) {
-    resolved_robot_config = "omts";
+  const std::optional<std::string_view> proto_robot_config =
+      (has_runtime_config && config.has_robot_config())
+          ? std::make_optional<std::string_view>(config.robot_config())
+          : std::nullopt;
+  const auto robot_config_resolution =
+      moveit_planning_service::ResolveRobotConfig(
+          node->get_parameter("robot_config").as_string(), proto_robot_config);
+  if (robot_config_resolution.param_overrides_proto) {
+    RCLCPP_WARN(
+        node->get_logger(),
+        "ROS parameter robot_config ('%s') differs from runtime_config.pb "
+        "robot_config ('%s'); using '%s'.",
+        robot_config_resolution.normalized_param.c_str(),
+        robot_config_resolution.normalized_proto.c_str(),
+        robot_config_resolution.resolved_config.c_str());
   }
-  if (!IsSupportedRobotConfig(resolved_robot_config)) {
+  if (!robot_config_resolution.is_supported) {
     RCLCPP_FATAL(
         node->get_logger(),
-        "Unsupported robot_config '%s'. Supported configurations: omts, "
-        "lab_bb_01",
-        resolved_robot_config.c_str());
+        "Unsupported robot_config '%s'. Supported configurations: %s",
+        robot_config_resolution.resolved_config.c_str(),
+        moveit_planning_service::SupportedRobotConfigsString().c_str());
     rclcpp::shutdown();
     return EXIT_FAILURE;
   }
-  node->set_parameter(rclcpp::Parameter("robot_config", resolved_robot_config));
+  node->set_parameter(rclcpp::Parameter(
+      "robot_config", robot_config_resolution.resolved_config));
 
   // Populate strongly-typed config structs from resolved node parameters
   moveit_planning_service::StaticTransformsConfig tf_config;

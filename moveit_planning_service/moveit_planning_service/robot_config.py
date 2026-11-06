@@ -15,7 +15,6 @@
 """Workcell robot configuration resolution for moveit_planning_service."""
 
 from collections.abc import Sequence
-import logging
 import os
 from pathlib import Path
 
@@ -29,7 +28,6 @@ SUPPORTED_ROBOT_CONFIGS: tuple[str, ...] = ("omts", "lab_bb_01")
 DEFAULT_ROBOT_CONFIG: str = "omts"
 DEFAULT_RUNTIME_CONFIG_PATH: str = "/etc/intrinsic/runtime_config.pb"
 
-_LOGGER = logging.getLogger(__name__)
 _RUNTIME_CONTEXT_FULL_NAME = "intrinsic_proto.config.RuntimeContext"
 _SERVICE_CONFIG_FULL_NAME = "intrinsic.MoveItPlanningServiceConfig"
 
@@ -102,11 +100,12 @@ def load_runtime_config_message_classes(
     file_map: dict[str, descriptor_pb2.FileDescriptorProto] = {}
     msg_to_file: dict[str, str] = {}
 
-    for raw_path in resolved_paths:
-        path = Path(raw_path)
-        if not path.is_file():
+    for path in resolved_paths:
+        try:
+            desc_bytes = path.read_bytes()
+        except FileNotFoundError:
             continue
-        fds = descriptor_pb2.FileDescriptorSet.FromString(path.read_bytes())
+        fds = descriptor_pb2.FileDescriptorSet.FromString(desc_bytes)
         for file_proto in fds.file:
             if file_proto.name not in file_map:
                 file_map[file_proto.name] = file_proto
@@ -117,10 +116,14 @@ def load_runtime_config_message_classes(
                     )
                     msg_to_file[full_name] = file_proto.name
 
-    root_files = [
-        msg_to_file[_RUNTIME_CONTEXT_FULL_NAME],
-        msg_to_file[_SERVICE_CONFIG_FULL_NAME],
-    ]
+    root_files: list[str] = []
+    for full_name in (_RUNTIME_CONTEXT_FULL_NAME, _SERVICE_CONFIG_FULL_NAME):
+        if full_name not in msg_to_file:
+            raise KeyError(
+                f"Required protobuf message {full_name!r} not found in "
+                f"descriptor sets: {[str(p) for p in resolved_paths]}"
+            )
+        root_files.append(msg_to_file[full_name])
 
     sorted_protos: list[descriptor_pb2.FileDescriptorProto] = []
     visited: set[str] = set()
@@ -131,8 +134,12 @@ def load_runtime_config_message_classes(
         visited.add(name)
         fp = file_map[name]
         for dep in fp.dependency:
-            if dep in file_map:
-                _visit(dep)
+            if dep not in file_map:
+                raise KeyError(
+                    f"Missing required protobuf dependency descriptor {dep!r} "
+                    f"(imported by {name!r})"
+                )
+            _visit(dep)
         sorted_protos.append(fp)
 
     for fname in root_files:
@@ -147,31 +154,29 @@ def load_runtime_config_message_classes(
 
 def read_robot_config_from_runtime_pb(
     runtime_config_path: str = DEFAULT_RUNTIME_CONFIG_PATH,
-    descriptor_paths: Sequence[str] | None = None,
+    descriptor_paths: Sequence[str | Path] | None = None,
 ) -> str:
     """Read and normalize `robot_config` from a serialized RuntimeContext file.
 
-    Returns `""` when the file is absent, unreadable, unpacks to a different
-    service configuration message, or leaves `robot_config` unset/blank.
-    Raises `ValueError` if `robot_config` is set to an unsupported value.
+    Returns `""` strictly when the file is absent or empty (0 bytes), unpacks to
+    an unrelated service configuration `Any` type, or leaves `robot_config`
+    unset/blank. Raises `RuntimeError` if a present, non-empty runtime config
+    cannot be read or decoded, and `ValueError` if `robot_config` is set to an
+    unsupported value, so launch fails closed rather than planning with the
+    wrong robot model.
     """
-    if not runtime_config_path:
+    if not runtime_config_path or not runtime_config_path.strip():
         return ""
     pb_path = Path(runtime_config_path)
-    if not pb_path.is_file():
-        return ""
 
     try:
         raw_bytes = pb_path.read_bytes()
-    except OSError as exc:
-        _LOGGER.warning(
-            "Failed to read runtime config at %s: %s; "
-            "falling back to default robot_config '%s'.",
-            pb_path,
-            exc,
-            DEFAULT_ROBOT_CONFIG,
-        )
+    except FileNotFoundError:
         return ""
+    except OSError as exc:
+        raise RuntimeError(
+            f"Failed to read runtime config at {pb_path}: {exc}"
+        ) from exc
     if not raw_bytes:
         return ""
 
@@ -180,27 +185,17 @@ def read_robot_config_from_runtime_pb(
             descriptor_paths
         )
     except (DecodeError, KeyError, OSError, TypeError) as exc:
-        _LOGGER.warning(
-            "Failed to load protobuf descriptors while reading %s: %s; "
-            "falling back to default robot_config '%s'.",
-            pb_path,
-            exc,
-            DEFAULT_ROBOT_CONFIG,
-        )
-        return ""
+        raise RuntimeError(
+            f"Failed to load protobuf descriptors while reading {pb_path}: {exc}"
+        ) from exc
 
     ctx_msg = runtime_ctx_cls()
     try:
         ctx_msg.ParseFromString(raw_bytes)
-    except DecodeError as exc:
-        _LOGGER.warning(
-            "Failed to decode RuntimeContext from %s: %s; "
-            "falling back to default robot_config '%s'.",
-            pb_path,
-            exc,
-            DEFAULT_ROBOT_CONFIG,
-        )
-        return ""
+    except (DecodeError, UnicodeDecodeError) as exc:
+        raise RuntimeError(
+            f"Failed to decode RuntimeContext from {pb_path}: {exc}"
+        ) from exc
 
     if not ctx_msg.HasField("config") or not ctx_msg.config.type_url:
         return ""
@@ -210,23 +205,14 @@ def read_robot_config_from_runtime_pb(
         return ""
     try:
         unpacked = ctx_msg.config.Unpack(cfg_msg)
-    except DecodeError as exc:
-        _LOGGER.warning(
-            "Failed to unpack MoveItPlanningServiceConfig from %s: %s; "
-            "falling back to default robot_config '%s'.",
-            pb_path,
-            exc,
-            DEFAULT_ROBOT_CONFIG,
-        )
-        return ""
+    except (DecodeError, UnicodeDecodeError) as exc:
+        raise RuntimeError(
+            f"Failed to unpack MoveItPlanningServiceConfig from {pb_path}: {exc}"
+        ) from exc
     if not unpacked:
-        _LOGGER.warning(
-            "Failed to unpack MoveItPlanningServiceConfig from %s; "
-            "falling back to default robot_config '%s'.",
-            pb_path,
-            DEFAULT_ROBOT_CONFIG,
+        raise RuntimeError(
+            f"Failed to unpack MoveItPlanningServiceConfig from {pb_path}."
         )
-        return ""
 
     raw_robot_config = cfg_msg.robot_config.strip()
     if not raw_robot_config:
@@ -237,7 +223,7 @@ def read_robot_config_from_runtime_pb(
 def resolve_robot_config(
     cli_robot_config: str = "",
     runtime_config_path: str = DEFAULT_RUNTIME_CONFIG_PATH,
-    descriptor_paths: Sequence[str] | None = None,
+    descriptor_paths: Sequence[str | Path] | None = None,
 ) -> str:
     """Resolve active robot configuration (`CLI > runtime_config.pb > 'omts'`)."""
     if cli_robot_config and cli_robot_config.strip():

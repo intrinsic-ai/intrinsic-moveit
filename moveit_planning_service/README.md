@@ -8,7 +8,7 @@ Intrinsic Core is the primary supported environment. Licensed users can also dep
 
 | Argument | Default | Description |
 | :--- | :--- | :--- |
-| `robot_config` | `""` (`omts`) | Workcell robot configuration (`omts` for UR5e OMTS, `lab_bb_01` / `lab-bb-01` for UR3e `lab-bb-01`). Precedence: CLI argument > `MoveItPlanningServiceConfig.robot_config` in `/etc/intrinsic/runtime_config.pb` > `"omts"`. |
+| `robot_config` | `""` (`omts`) | Workcell robot configuration (`omts` for UR5e OMTS, `lab_bb_01` / `lab-bb-01` for UR3e `lab-bb-01`). Precedence: CLI argument > `MoveItPlanningServiceConfig.robot_config` in `/etc/intrinsic/runtime_config.pb` > `"omts"` (fails closed if a present, non-empty `runtime_config.pb` cannot be read or decoded). |
 | `headless` | `true` | When `true`, omits RViz visualization. When `false`, launches RViz. |
 | `start_service_status_monitor` | `true` | Controls whether the `status_monitor` node runs to report `ServiceState` to the platform. |
 | `use_mock_hardware` | `false` | When `true`, spawns mock `ros2_control` hardware, virtual joint static TF (`world -> base_link`), and controllers for standalone execution. |
@@ -148,6 +148,7 @@ Verify that MoveIt and the service endpoints are ready:
 [INFO] [moveit_planning_node]: Ready to receive requests at:
 [INFO] [moveit_planning_node]:  - motion_planning/get_motion_plan
 [INFO] [moveit_planning_node]:  - grasp_planning/plan_grasps (action)
+[INFO] [moveit_planning_node]:  - ~/sync_collision_objects
 ```
 
 ### 2. Planning Node Blocking Waiting for Collision Objects

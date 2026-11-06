@@ -13,15 +13,23 @@
 # limitations under the License.
 
 import importlib.util
+import math
+import os
 from pathlib import Path
 
+from ament_index_python.packages import PackageNotFoundError
 from ament_index_python.packages import get_package_share_directory
+from google.protobuf import descriptor_pb2
 from launch import LaunchContext
 from launch.actions import DeclareLaunchArgument
 from launch.actions import IncludeLaunchDescription
 from launch.actions import OpaqueFunction
+from launch_ros.actions import Node
+from launch_ros.utilities import evaluate_parameters
+from moveit_configs_utils import MoveItConfigsBuilder
 import pytest
 
+import moveit_planning_service.robot_config as robot_config_mod
 from moveit_planning_service.robot_config import DEFAULT_ROBOT_CONFIG
 from moveit_planning_service.robot_config import SUPPORTED_ROBOT_CONFIGS
 from moveit_planning_service.robot_config import default_descriptor_paths
@@ -59,11 +67,13 @@ def _write_runtime_context_pb(
     return target_path
 
 
-def _load_launch_module(launch_filename: str):
-    share_dir = Path(get_package_share_directory("moveit_planning_service"))
+def _load_launch_module(
+    launch_filename: str, pkg_name: str = "moveit_planning_service"
+):
+    share_dir = Path(get_package_share_directory(pkg_name))
     module_path = share_dir / "launch" / launch_filename
     spec = importlib.util.spec_from_file_location(
-        launch_filename.replace(".", "_"), module_path
+        f"{pkg_name}_{launch_filename.replace('.', '_')}", module_path
     )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -92,6 +102,53 @@ def _evaluate_launch_description(launch_description, overrides: dict[str, str]):
 def test_supported_constants():
     assert DEFAULT_ROBOT_CONFIG == "omts"
     assert SUPPORTED_ROBOT_CONFIGS == ("omts", "lab_bb_01")
+    display_launch = _load_launch_module(
+        "display.launch.py", pkg_name="robot_hardware_descriptions"
+    )
+    assert tuple(display_launch.SUPPORTED_ROBOT_CONFIGS) == (
+        SUPPORTED_ROBOT_CONFIGS
+    )
+
+
+def test_find_package_file_falls_back_to_env_prefixes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    def _always_missing(pkg_name: str) -> str:
+        raise PackageNotFoundError(pkg_name)
+
+    monkeypatch.setattr(
+        robot_config_mod, "get_package_share_directory", _always_missing
+    )
+
+    ament_prefix = tmp_path / "ament_ws"
+    ament_desc = ament_prefix / "share" / "custom_pkg_a" / "test_a.desc"
+    ament_desc.parent.mkdir(parents=True)
+    ament_desc.write_bytes(b"a")
+
+    cmake_prefix = tmp_path / "cmake_ws"
+    cmake_desc = (
+        cmake_prefix / "custom_pkg_b" / "share" / "custom_pkg_b" / "test_b.desc"
+    )
+    cmake_desc.parent.mkdir(parents=True)
+    cmake_desc.write_bytes(b"b")
+
+    monkeypatch.setenv(
+        "AMENT_PREFIX_PATH", f"{tmp_path / 'empty'}{os.pathsep}{ament_prefix}"
+    )
+    monkeypatch.setenv("CMAKE_PREFIX_PATH", str(cmake_prefix))
+
+    assert (
+        robot_config_mod._find_package_file("custom_pkg_a", "test_a.desc")
+        == ament_desc
+    )
+    assert (
+        robot_config_mod._find_package_file("custom_pkg_b", "test_b.desc")
+        == cmake_desc
+    )
+    assert (
+        robot_config_mod._find_package_file("custom_pkg_c", "missing.desc")
+        is None
+    )
 
 
 @pytest.mark.parametrize(
@@ -147,59 +204,102 @@ def test_resolve_robot_config_cli_overrides_runtime_pb(tmp_path: Path):
     assert resolve_robot_config("lab-bb-01", str(pb_omts)) == "lab_bb_01"
 
 
-def test_resolve_robot_config_fallbacks_to_default(tmp_path: Path, capsys):
-    # 1. Missing file -> silent fallback
-    capsys.readouterr()
+def test_resolve_robot_config_fallbacks_to_default(tmp_path: Path):
+    # 1. Empty/whitespace path or missing file -> silent fallback
+    assert resolve_robot_config("", "") == "omts"
+    assert resolve_robot_config("", "   ") == "omts"
     missing = tmp_path / "does_not_exist.pb"
     assert resolve_robot_config("", str(missing)) == "omts"
-    assert capsys.readouterr().err == ""
 
-    # 2. Unset robot_config field in MoveItPlanningServiceConfig -> silent fallback
+    # 2. 0-byte runtime_config.pb -> silent fallback
+    empty_pb = tmp_path / "empty.pb"
+    empty_pb.write_bytes(b"")
+    assert resolve_robot_config("", str(empty_pb)) == "omts"
+
+    # 3. Unset robot_config field in MoveItPlanningServiceConfig -> silent fallback
     unset_pb = _write_runtime_context_pb(
         tmp_path / "unset.pb", robot_config_value=None
     )
-    capsys.readouterr()
     assert resolve_robot_config("", str(unset_pb)) == "omts"
-    assert capsys.readouterr().err == ""
 
-    # 3. Empty/whitespace robot_config in MoveItPlanningServiceConfig -> silent fallback
+    # 4. Empty/whitespace robot_config in MoveItPlanningServiceConfig -> silent fallback
     blank_pb = _write_runtime_context_pb(
         tmp_path / "blank.pb", robot_config_value="   "
     )
-    capsys.readouterr()
     assert resolve_robot_config("", str(blank_pb)) == "omts"
-    assert capsys.readouterr().err == ""
 
-    # 4. RuntimeContext packing an unrelated Any type_url -> silent fallback
+    # 5. RuntimeContext packing an unrelated Any type_url -> silent fallback
     unrelated_pb = _write_runtime_context_pb(
         tmp_path / "unrelated.pb",
         raw_any_type_url="type.googleapis.com/other.ServiceConfig",
         raw_any_value=b"",
     )
-    capsys.readouterr()
     assert resolve_robot_config("", str(unrelated_pb)) == "omts"
-    assert capsys.readouterr().err == ""
 
-    # 5. Corrupt protobuf bytes -> fallback with explicit warning
+
+def test_read_runtime_pb_fails_closed_on_read_or_decode_errors(tmp_path: Path):
+    # 1. OSError when reading path (e.g. directory instead of file) -> RuntimeError
+    dir_path = tmp_path / "not_a_file.pb"
+    dir_path.mkdir()
+    with pytest.raises(RuntimeError, match="Failed to read runtime config"):
+        resolve_robot_config("", str(dir_path))
+
+    # 2. Corrupt RuntimeContext bytes -> RuntimeError
     corrupt_pb = tmp_path / "corrupt.pb"
     corrupt_pb.write_bytes(b"\xff\x00\xfe\x01not-valid-protobuf")
-    capsys.readouterr()
-    assert resolve_robot_config("", str(corrupt_pb)) == "omts"
-    corrupt_err = capsys.readouterr().err
-    assert "corrupt.pb" in corrupt_err
-    assert "omts" in corrupt_err
+    with pytest.raises(RuntimeError, match="Failed to decode RuntimeContext"):
+        resolve_robot_config("", str(corrupt_pb))
 
-    # 6. Missing descriptor files with non-empty runtime_config.pb -> fallback with explicit warning
+    # 3. Corrupt MoveItPlanningServiceConfig inside Any -> RuntimeError
+    corrupt_any_pb = _write_runtime_context_pb(
+        tmp_path / "corrupt_any.pb",
+        raw_any_type_url=(
+            "type.googleapis.com/intrinsic.MoveItPlanningServiceConfig"
+        ),
+        raw_any_value=b"\xff\x00\xfe\x01not-valid-protobuf",
+    )
+    with pytest.raises(
+        RuntimeError, match="Failed to unpack MoveItPlanningServiceConfig"
+    ):
+        resolve_robot_config("", str(corrupt_any_pb))
+
+    # 4. Missing or unreadable descriptor files with non-empty runtime_config.pb -> RuntimeError
     valid_pb = _write_runtime_context_pb(
         tmp_path / "valid_lab.pb", robot_config_value="lab_bb_01"
     )
-    capsys.readouterr()
-    assert (
+    with pytest.raises(
+        RuntimeError, match="Failed to load protobuf descriptors"
+    ):
         read_robot_config_from_runtime_pb(str(valid_pb), descriptor_paths=[])
-        == ""
+    with pytest.raises(
+        RuntimeError, match="Failed to load protobuf descriptors"
+    ):
+        read_robot_config_from_runtime_pb(
+            str(valid_pb), descriptor_paths=[dir_path]
+        )
+
+    # 5. Descriptor bundle missing an imported .proto dependency -> KeyError / RuntimeError
+    desc_paths = default_descriptor_paths()
+    stripped_sdk_desc = tmp_path / "stripped_intrinsic_proto.desc"
+    sdk_fds = descriptor_pb2.FileDescriptorSet.FromString(
+        desc_paths[0].read_bytes()
     )
-    missing_desc_err = capsys.readouterr().err
-    assert "Failed to load protobuf descriptors" in missing_desc_err
+    kept_files = [
+        f for f in sdk_fds.file if f.name != "google/protobuf/any.proto"
+    ]
+    del sdk_fds.file[:]
+    sdk_fds.file.extend(kept_files)
+    stripped_sdk_desc.write_bytes(sdk_fds.SerializeToString())
+
+    with pytest.raises(KeyError, match="google/protobuf/any.proto"):
+        load_runtime_config_message_classes([stripped_sdk_desc, desc_paths[1]])
+    with pytest.raises(RuntimeError, match="google/protobuf/any.proto"):
+        read_robot_config_from_runtime_pb(
+            str(valid_pb), descriptor_paths=[stripped_sdk_desc, desc_paths[1]]
+        )
+
+    # Explicit CLI override does not touch corrupt runtime_config.pb
+    assert resolve_robot_config("omts", str(corrupt_pb)) == "omts"
 
 
 def test_resolve_robot_config_invalid_in_runtime_pb_raises(tmp_path: Path):
@@ -238,10 +338,38 @@ def _matches_pkg(location: str, pkg_name: str) -> bool:
     return any(location.startswith(prefix) for prefix in candidates)
 
 
-def test_service_launch_selects_expected_moveit_config(tmp_path: Path):
-    service_launch = _load_launch_module("service.launch.py")
+def _planning_node_robot_config(
+    context: LaunchContext, actions: list
+) -> str:
+    planning_nodes = [
+        action
+        for action in actions
+        if isinstance(action, Node)
+        and action.node_executable == "moveit_planning_node"
+    ]
+    assert len(planning_nodes) == 1
+    evaluated_params = evaluate_parameters(
+        context, planning_nodes[0]._Node__parameters
+    )
+    merged: dict[str, object] = {}
+    for entry in evaluated_params:
+        if isinstance(entry, dict):
+            merged.update(entry)
+    assert "robot_config" in merged
+    return str(merged["robot_config"])
 
-    # Default (no CLI override, no /etc/intrinsic/runtime_config.pb) -> omts_moveit_config
+
+def test_service_launch_selects_expected_moveit_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service_launch = _load_launch_module("service.launch.py")
+    monkeypatch.setattr(
+        service_launch,
+        "DEFAULT_RUNTIME_CONFIG_PATH",
+        str(tmp_path / "isolated_missing_runtime_config.pb"),
+    )
+
+    # Default (no CLI override, isolated missing runtime_config.pb) -> omts_moveit_config
     default_ctx, default_actions = _evaluate_launch_description(
         service_launch.generate_launch_description(), {}
     )
@@ -250,6 +378,7 @@ def test_service_launch_selects_expected_moveit_config(tmp_path: Path):
     assert all(
         _matches_pkg(loc, "omts_moveit_config") for loc in default_includes
     )
+    assert _planning_node_robot_config(default_ctx, default_actions) == "omts"
 
     # CLI override robot_config:="lab-bb-01" -> lab_bb_01_moveit_config
     lab_ctx, lab_actions = _evaluate_launch_description(
@@ -261,6 +390,7 @@ def test_service_launch_selects_expected_moveit_config(tmp_path: Path):
     assert all(
         _matches_pkg(loc, "lab_bb_01_moveit_config") for loc in lab_includes
     )
+    assert _planning_node_robot_config(lab_ctx, lab_actions) == "lab_bb_01"
 
     # Runtime protobuf selection when CLI robot_config is empty
     pb_lab = _write_runtime_context_pb(
@@ -279,6 +409,35 @@ def test_service_launch_selects_expected_moveit_config(tmp_path: Path):
         _matches_pkg(loc, "lab_bb_01_moveit_config")
         for loc in runtime_includes
     )
+    assert _planning_node_robot_config(ctx, runtime_actions) == "lab_bb_01"
+
+    # CLI robot_config:="omts" overrides runtime_config.pb ("lab-bb-01")
+    override_ctx = LaunchContext()
+    override_ctx.launch_configurations["robot_config"] = "omts"
+    for entity in service_launch.generate_launch_description().entities:
+        if isinstance(entity, DeclareLaunchArgument):
+            entity.visit(override_ctx)
+    override_actions = service_launch.build_service_launch_actions(
+        override_ctx, runtime_config_path=str(pb_lab)
+    )
+    override_includes = _resolved_include_locations(
+        override_ctx, override_actions
+    )
+    assert len(override_includes) >= 4
+    assert all(
+        _matches_pkg(loc, "omts_moveit_config") for loc in override_includes
+    )
+    assert (
+        _planning_node_robot_config(override_ctx, override_actions) == "omts"
+    )
+
+    # Corrupt runtime_config.pb fails closed during launch instead of loading omts
+    corrupt_pb = tmp_path / "corrupt_runtime.pb"
+    corrupt_pb.write_bytes(b"\xff\x00\xfe\x01not-valid-protobuf")
+    with pytest.raises(RuntimeError, match="Failed to decode RuntimeContext"):
+        service_launch.build_service_launch_actions(
+            ctx, runtime_config_path=str(corrupt_pb)
+        )
 
     # Invalid CLI robot_config -> ValueError
     with pytest.raises(ValueError):
@@ -318,9 +477,6 @@ def test_grasp_planning_test_launch_selects_expected_moveit_config():
 
 
 def test_moveit_configs_joint_limits_match_workcells():
-    import math
-    from moveit_configs_utils import MoveItConfigsBuilder
-
     omts_cfg = MoveItConfigsBuilder(
         "omts", package_name="omts_moveit_config"
     ).to_moveit_configs()

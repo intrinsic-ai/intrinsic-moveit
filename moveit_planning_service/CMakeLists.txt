@@ -76,6 +76,7 @@ add_executable(moveit_planning_node
   src/moveit_scene_synchronizer.cpp
   src/generate_box_grasp_poses.cpp
   src/object_geometry.cpp
+  src/robot_config.cpp
 )
 target_include_directories(moveit_planning_node
   PUBLIC
@@ -237,17 +238,27 @@ if(BUILD_TESTING)
     status_monitor_lib
   )
 
+  ament_add_gtest(robot_config_test
+    test/robot_config_test.cpp
+    src/robot_config.cpp
+  )
+  target_include_directories(robot_config_test PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+
   ament_add_gtest(robot_configs_model_test
     test/robot_configs_model_test.cpp
     src/grasp_planning_pipeline.cpp
     src/object_geometry.cpp
     src/generate_box_grasp_poses.cpp
   )
+  find_package(srdfdom REQUIRED)
+  find_package(urdfdom REQUIRED)
   target_include_directories(robot_configs_model_test PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
   target_link_libraries(robot_configs_model_test
     ament_index_cpp::ament_index_cpp
     rclcpp::rclcpp
     Eigen3::Eigen
+    srdfdom::srdfdom
+    urdfdom::urdf_parser
     ${moveit_msgs_TARGETS}
     ${moveit_core_TARGETS}
     ${moveit_ros_planning_interface_TARGETS}

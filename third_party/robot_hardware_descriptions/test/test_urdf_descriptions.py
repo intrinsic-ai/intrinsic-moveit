@@ -14,12 +14,18 @@
 
 """Verification tests for omts and lab_bb_01 robot hardware descriptions."""
 
+import importlib.util
 import math
 from pathlib import Path
+import shlex
+import shutil
 import xml.etree.ElementTree as ET
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchContext
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.substitutions import Command
+from launch_ros.actions import Node
 import pytest
 import xacro
 
@@ -170,11 +176,11 @@ def test_vendored_ur_docs_and_licenses_installed(ur_model: str):
     assert (ur_dir / 'collision' / 'LICENSE').is_file()
 
 
-def test_display_launch_normalizes_and_validates_robot_config():
-    """display.launch.py supports omts, lab_bb_01, lab-bb-01, and rejects invalid names."""
-    import importlib.util
-
+def test_display_launch_normalizes_and_validates_robot_config(tmp_path: Path):
+    """display.launch.py supports omts/lab_bb_01, builds all 3 nodes, and rejects bad configs."""
     share_dir = Path(get_package_share_directory(PKG_NAME))
+    assert (share_dir / 'rviz' / 'display.rviz').is_file()
+
     spec = importlib.util.spec_from_file_location(
         'display_launch', share_dir / 'launch' / 'display.launch.py'
     )
@@ -192,9 +198,43 @@ def test_display_launch_normalizes_and_validates_robot_config():
     assert module.resolve_display_xacro_path(' LAB-BB-01 ').endswith(
         'lab_bb_01.urdf.xacro'
     )
-    with pytest.raises(ValueError, match='omts'):
-        module.resolve_display_xacro_path('unknown_robot')
-    with pytest.raises(ValueError, match='lab_bb_01'):
-        module.resolve_display_xacro_path('../omts')
-    assert module.generate_launch_description() is not None
-    _ = LaunchContext()
+    for invalid_config in ('', '   ', 'unknown_robot', '../omts'):
+        with pytest.raises(ValueError, match='omts'):
+            module.resolve_display_xacro_path(invalid_config)
+
+    # Evaluate DeclareLaunchArgument and OpaqueFunction for default ('omts') and 'lab-bb-01'.
+    for override in (None, 'lab-bb-01'):
+        ld = module.generate_launch_description()
+        assert len(ld.entities) == 2
+        declare_arg, opaque_fn = ld.entities
+        assert isinstance(declare_arg, DeclareLaunchArgument)
+        assert isinstance(opaque_fn, OpaqueFunction)
+
+        context = LaunchContext()
+        if override is not None:
+            context.launch_configurations['robot_config'] = override
+        declare_arg.visit(context)
+        nodes = opaque_fn.visit(context)
+
+        assert len(nodes) == 3
+        assert all(isinstance(n, Node) for n in nodes)
+        assert [n.node_package for n in nodes] == [
+            'robot_state_publisher',
+            'joint_state_publisher_gui',
+            'rviz2',
+        ]
+        assert [n.node_executable for n in nodes] == [
+            'robot_state_publisher',
+            'joint_state_publisher_gui',
+            'rviz2',
+        ]
+
+    # Verify shlex.quote handling in Command(['xacro ', ...]) for paths containing spaces.
+    spaced_dir = tmp_path / 'dir with spaces'
+    spaced_dir.mkdir()
+    spaced_xacro = spaced_dir / 'omts.urdf.xacro'
+    shutil.copyfile(module.resolve_display_xacro_path('omts'), spaced_xacro)
+    rendered = Command(['xacro ', shlex.quote(str(spaced_xacro))]).perform(
+        LaunchContext()
+    )
+    assert '<robot name="omts">' in rendered
