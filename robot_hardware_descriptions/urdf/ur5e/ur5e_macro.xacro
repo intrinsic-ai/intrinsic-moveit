@@ -35,7 +35,6 @@ limitations under the License.
         -->
         <origin rpy="0 0 3.14159265359" xyz="0 0 0.01"/>
         <geometry>
-          <!-- <mesh filename="package://robot_meshes_vendor/meshes/ur5e/collision/base.wrapped.1cm.stl"/> -->
           <mesh filename="package://robot_meshes_vendor/meshes/ur5e/collision/base.stl"/>
         </geometry>
       </collision>
