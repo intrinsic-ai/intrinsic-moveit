@@ -243,6 +243,10 @@ if(BUILD_TESTING)
     src/robot_config.cpp
   )
   target_include_directories(robot_config_test PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+  target_link_libraries(robot_config_test
+    intrinsic_sdk_cmake::intrinsic_sdk_cmake
+    ${SERVICE_NAME}_protos
+  )
 
   ament_add_gtest(robot_configs_model_test
     test/robot_configs_model_test.cpp

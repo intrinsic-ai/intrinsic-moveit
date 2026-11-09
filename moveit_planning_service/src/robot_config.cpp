@@ -16,23 +16,33 @@
 
 #include <algorithm>
 #include <cctype>
+#include <filesystem>
+#include <fstream>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
+
+#include "intrinsic/resources/proto/runtime_context.pb.h"
+#include "moveit_planning_service.pb.h"
 
 namespace moveit_planning_service {
 
+namespace {
+constexpr std::string_view kAsciiWhitespace = " \t\r\n\f\v";
+}  // namespace
+
 std::string TrimAndNormalizeRobotConfig(std::string_view raw) {
-  const auto first = raw.find_first_not_of(" \t\r\n");
+  const auto first = raw.find_first_not_of(kAsciiWhitespace);
   if (first == std::string_view::npos) {
     return "";
   }
-  const auto last = raw.find_last_not_of(" \t\r\n");
+  const auto last = raw.find_last_not_of(kAsciiWhitespace);
   std::string normalized(raw.substr(first, last - first + 1));
   std::transform(
       normalized.begin(), normalized.end(), normalized.begin(),
       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-  std::replace(normalized.begin(), normalized.end(), '-', '_');
   return normalized;
 }
 
@@ -73,6 +83,75 @@ RobotConfigResolution ResolveRobotConfig(
   }
 
   result.is_supported = IsSupportedRobotConfig(result.resolved_config);
+  return result;
+}
+
+RuntimeConfigLoadResult LoadRuntimeServiceConfig(
+    const std::filesystem::path& runtime_config_path,
+    intrinsic::MoveItPlanningServiceConfig* out_config) {
+  RuntimeConfigLoadResult result;
+  if (runtime_config_path.empty()) {
+    return result;
+  }
+
+  std::error_code dir_ec;
+  if (std::filesystem::is_directory(runtime_config_path, dir_ec)) {
+    result.error_message = "Failed to read runtime config at '" +
+                           runtime_config_path.string() + "': is a directory";
+    return result;
+  }
+
+  std::ifstream ifs(runtime_config_path, std::ios::binary);
+  if (!ifs.is_open()) {
+    std::error_code exists_ec;
+    const bool exists = std::filesystem::exists(runtime_config_path, exists_ec);
+    if (!exists && !exists_ec) {
+      return result;
+    }
+    result.error_message = "Failed to open runtime config at '" +
+                           runtime_config_path.string() + "'" +
+                           (exists_ec ? (": " + exists_ec.message()) : "");
+    return result;
+  }
+
+  std::ostringstream oss;
+  oss << ifs.rdbuf();
+  if (ifs.bad()) {
+    result.error_message = "Failed to read runtime config bytes from '" +
+                           runtime_config_path.string() + "'";
+    return result;
+  }
+  const std::string raw_bytes = oss.str();
+  if (raw_bytes.empty()) {
+    return result;
+  }
+
+  intrinsic_proto::config::RuntimeContext runtime_context;
+  if (!runtime_context.ParseFromString(raw_bytes)) {
+    result.error_message = "Failed to decode RuntimeContext from '" +
+                           runtime_config_path.string() + "'";
+    return result;
+  }
+
+  if (!runtime_context.has_config() ||
+      runtime_context.config().type_url().empty()) {
+    return result;
+  }
+  if (!runtime_context.config().Is<intrinsic::MoveItPlanningServiceConfig>()) {
+    return result;
+  }
+
+  intrinsic::MoveItPlanningServiceConfig local_config;
+  intrinsic::MoveItPlanningServiceConfig* target =
+      (out_config != nullptr) ? out_config : &local_config;
+  if (!runtime_context.config().UnpackTo(target)) {
+    result.error_message =
+        "Failed to unpack MoveItPlanningServiceConfig from '" +
+        runtime_config_path.string() + "'";
+    return result;
+  }
+
+  result.has_service_config = true;
   return result;
 }
 

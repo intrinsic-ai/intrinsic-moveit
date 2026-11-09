@@ -32,24 +32,11 @@ from moveit_planning_service.robot_config import DEFAULT_RUNTIME_CONFIG_PATH
 from moveit_planning_service.robot_config import resolve_robot_config
 
 
-def build_service_launch_actions(
-    context, runtime_config_path: str | None = None
-):
-    if runtime_config_path is None:
-        runtime_config_path = DEFAULT_RUNTIME_CONFIG_PATH
-    cli_robot_config = LaunchConfiguration("robot_config").perform(context)
-    resolved_config = resolve_robot_config(
-        cli_robot_config=cli_robot_config,
-        runtime_config_path=runtime_config_path,
-    )
-    moveit_pkg_name = f"{resolved_config}_moveit_config"
-
-    moveit_config = MoveItConfigsBuilder(
-        resolved_config, package_name=moveit_pkg_name
-    ).to_moveit_configs()
-
-    planning_params = [
-        moveit_config.to_dict(),
+def build_planning_node_params(
+    resolved_config: str, moveit_config_dict: dict
+) -> list[dict]:
+    return [
+        moveit_config_dict,
         {
             "robot_config": resolved_config,
             "intrinsic_core_ingress_address": ParameterValue(
@@ -94,6 +81,27 @@ def build_service_launch_actions(
             ),
         },
     ]
+
+
+def build_service_launch_actions(
+    context, runtime_config_path: str | None = None
+):
+    if runtime_config_path is None:
+        runtime_config_path = DEFAULT_RUNTIME_CONFIG_PATH
+    cli_robot_config = LaunchConfiguration("robot_config").perform(context)
+    resolved_config = resolve_robot_config(
+        cli_robot_config=cli_robot_config,
+        runtime_config_path=runtime_config_path,
+    )
+    moveit_pkg_name = f"{resolved_config}_moveit_config"
+
+    moveit_config = MoveItConfigsBuilder(
+        resolved_config, package_name=moveit_pkg_name
+    ).to_moveit_configs()
+
+    planning_params = build_planning_node_params(
+        resolved_config, moveit_config.to_dict()
+    )
 
     moveit_planning_node = Node(
         package="moveit_planning_service",
@@ -231,9 +239,9 @@ def generate_launch_description():
         "robot_config",
         default_value="",
         description=(
-            "Workcell robot configuration to load ('omts' or 'lab_bb_01'; "
-            "'lab-bb-01' is also accepted). When empty, falls back to "
-            "/etc/intrinsic/runtime_config.pb or defaults to 'omts'."
+            "Workcell robot configuration to load ('omts' or 'lab_bb_01'). "
+            "When empty, falls back to /etc/intrinsic/runtime_config.pb or "
+            "defaults to 'omts'."
         ),
     )
 

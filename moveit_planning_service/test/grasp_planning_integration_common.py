@@ -97,7 +97,7 @@ class GraspPlanningIntegrationTestBase(unittest.TestCase):
 
     EXPECTED_ROBOT_CONFIG: str = 'omts'
     EXPECTED_ROBOT_NAME: str = 'omts'
-    EXPECTED_MESH_SUBDIR: str = 'package://robot_hardware_descriptions/urdf/ur5e/'
+    EXPECTED_MESH_SUBDIR: str = 'package://robot_meshes_vendor/meshes/ur5e/'
     BOX_1_XYZ: tuple[float, float, float] = (0.3, -0.18, 0.015)
     BOX_2_XYZ: tuple[float, float, float] = (0.3, 0.18, 0.015)
 

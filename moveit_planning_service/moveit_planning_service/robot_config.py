@@ -20,7 +20,9 @@ from pathlib import Path
 
 from ament_index_python.packages import PackageNotFoundError
 from ament_index_python.packages import get_package_share_directory
+from google.protobuf import descriptor_database
 from google.protobuf import descriptor_pb2
+from google.protobuf import descriptor_pool
 from google.protobuf import message_factory
 from google.protobuf.message import DecodeError
 
@@ -28,13 +30,14 @@ SUPPORTED_ROBOT_CONFIGS: tuple[str, ...] = ("omts", "lab_bb_01")
 DEFAULT_ROBOT_CONFIG: str = "omts"
 DEFAULT_RUNTIME_CONFIG_PATH: str = "/etc/intrinsic/runtime_config.pb"
 
+_ASCII_WHITESPACE = " \t\r\n\f\v"
 _RUNTIME_CONTEXT_FULL_NAME = "intrinsic_proto.config.RuntimeContext"
 _SERVICE_CONFIG_FULL_NAME = "intrinsic.MoveItPlanningServiceConfig"
 
 
 def normalize_robot_config(value: str) -> str:
     """Normalize and validate a robot configuration name."""
-    normalized = value.strip().lower().replace("-", "_")
+    normalized = value.strip(_ASCII_WHITESPACE).lower()
     if normalized not in SUPPORTED_ROBOT_CONFIGS:
         supported = ", ".join(SUPPORTED_ROBOT_CONFIGS)
         raise ValueError(
@@ -145,10 +148,20 @@ def load_runtime_config_message_classes(
     for fname in root_files:
         _visit(fname)
 
-    messages = message_factory.GetMessages(sorted_protos)
+    pool = descriptor_pool.DescriptorPool()
+    for fp in sorted_protos:
+        pool.Add(fp)
+    get_message_class = getattr(message_factory, "GetMessageClass", None)
+    if get_message_class is None:
+        # Protobuf < 4.22 compatibility (e.g. Ubuntu 24.04 / ROS 2 Jazzy).
+        get_message_class = message_factory.MessageFactory(pool).GetPrototype
     return (
-        messages[_RUNTIME_CONTEXT_FULL_NAME],
-        messages[_SERVICE_CONFIG_FULL_NAME],
+        get_message_class(
+            pool.FindMessageTypeByName(_RUNTIME_CONTEXT_FULL_NAME)
+        ),
+        get_message_class(
+            pool.FindMessageTypeByName(_SERVICE_CONFIG_FULL_NAME)
+        ),
     )
 
 
@@ -165,7 +178,9 @@ def read_robot_config_from_runtime_pb(
     unsupported value, so launch fails closed rather than planning with the
     wrong robot model.
     """
-    if not runtime_config_path or not runtime_config_path.strip():
+    if not runtime_config_path or not runtime_config_path.strip(
+        _ASCII_WHITESPACE
+    ):
         return ""
     pb_path = Path(runtime_config_path)
 
@@ -184,7 +199,13 @@ def read_robot_config_from_runtime_pb(
         runtime_ctx_cls, service_cfg_cls = load_runtime_config_message_classes(
             descriptor_paths
         )
-    except (DecodeError, KeyError, OSError, TypeError) as exc:
+    except (
+        DecodeError,
+        KeyError,
+        OSError,
+        TypeError,
+        descriptor_database.DescriptorDatabaseConflictingDefinitionError,
+    ) as exc:
         raise RuntimeError(
             f"Failed to load protobuf descriptors while reading {pb_path}: {exc}"
         ) from exc
@@ -214,7 +235,7 @@ def read_robot_config_from_runtime_pb(
             f"Failed to unpack MoveItPlanningServiceConfig from {pb_path}."
         )
 
-    raw_robot_config = cfg_msg.robot_config.strip()
+    raw_robot_config = cfg_msg.robot_config.strip(_ASCII_WHITESPACE)
     if not raw_robot_config:
         return ""
     return normalize_robot_config(raw_robot_config)
@@ -226,7 +247,7 @@ def resolve_robot_config(
     descriptor_paths: Sequence[str | Path] | None = None,
 ) -> str:
     """Resolve active robot configuration (`CLI > runtime_config.pb > 'omts'`)."""
-    if cli_robot_config and cli_robot_config.strip():
+    if cli_robot_config and cli_robot_config.strip(_ASCII_WHITESPACE):
         return normalize_robot_config(cli_robot_config)
 
     from_runtime = read_robot_config_from_runtime_pb(

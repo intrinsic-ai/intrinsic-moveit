@@ -55,8 +55,7 @@ def generate_launch_description():
                 "robot_config",
                 default_value=DEFAULT_ROBOT_CONFIG,
                 description=(
-                    "Workcell robot configuration to load ('omts' or 'lab_bb_01'; "
-                    "'lab-bb-01' is also accepted)."
+                    "Workcell robot configuration to load ('omts' or 'lab_bb_01')."
                 ),
             ),
             OpaqueFunction(function=_launch_setup),

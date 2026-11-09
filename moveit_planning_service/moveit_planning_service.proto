@@ -79,7 +79,6 @@ message MoveItPlanningServiceConfig {
   optional double world_sync_interval_sec = 20;
 
   // Workcell robot hardware configuration to load at launch/startup time
-  // (supported: "omts" or "lab_bb_01"; hyphenated "lab-bb-01" is normalized to
-  // "lab_bb_01"). Defaults to "omts".
+  // (supported: "omts" or "lab_bb_01"). Defaults to "omts".
   optional string robot_config = 21;
 }

@@ -394,29 +394,23 @@ std::thread orchestrate_scene_synchronization(
   });
 }
 
-intrinsic_proto::config::RuntimeContext GetRuntimeContext() {
-  intrinsic_proto::config::RuntimeContext runtime_context;
-  std::ifstream runtime_context_file;
-  runtime_context_file.open("/etc/intrinsic/runtime_config.pb",
-                            std::ios::binary);
-  if (!runtime_context.ParseFromIstream(&runtime_context_file)) {
-    // Return default context for running locally
-    std::cerr << "Warning: using default RuntimeContext\n";
-  }
-  return runtime_context;
-}
-
 int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
 
-  auto runtime_context = GetRuntimeContext();
   intrinsic::MoveItPlanningServiceConfig config;
-  const bool has_runtime_config = runtime_context.config().UnpackTo(&config);
-  if (!has_runtime_config) {
-    RCLCPP_WARN(
-        rclcpp::get_logger("moveit_planning_service"),
-        "Failed to unpack MoveItPlanningServiceConfig from runtime_config.pb; "
-        "using default parameters or CLI arguments.");
+  const auto runtime_load_result =
+      moveit_planning_service::LoadRuntimeServiceConfig(
+          moveit_planning_service::kDefaultRuntimeConfigPath, &config);
+  const bool has_runtime_config = runtime_load_result.has_service_config;
+  if (!runtime_load_result.error_message.empty()) {
+    RCLCPP_WARN(rclcpp::get_logger("moveit_planning_service"), "%s",
+                runtime_load_result.error_message.c_str());
+  } else if (!has_runtime_config) {
+    RCLCPP_INFO(rclcpp::get_logger("moveit_planning_service"),
+                "No MoveItPlanningServiceConfig in '%s'; using launch/default "
+                "parameters.",
+                std::string(moveit_planning_service::kDefaultRuntimeConfigPath)
+                    .c_str());
   }
 
   // Determine Zenoh router address
@@ -552,13 +546,27 @@ int main(int argc, char** argv) {
     }
   }
 
+  const std::string param_robot_config =
+      node->get_parameter("robot_config").as_string();
+  if (moveit_planning_service::TrimAndNormalizeRobotConfig(param_robot_config)
+          .empty() &&
+      !runtime_load_result.error_message.empty()) {
+    RCLCPP_FATAL(
+        node->get_logger(),
+        "%s; refusing to fall back to default robot_config without an explicit "
+        "robot_config ROS parameter override.",
+        runtime_load_result.error_message.c_str());
+    rclcpp::shutdown();
+    return EXIT_FAILURE;
+  }
+
   const std::optional<std::string_view> proto_robot_config =
       (has_runtime_config && config.has_robot_config())
           ? std::make_optional<std::string_view>(config.robot_config())
           : std::nullopt;
   const auto robot_config_resolution =
-      moveit_planning_service::ResolveRobotConfig(
-          node->get_parameter("robot_config").as_string(), proto_robot_config);
+      moveit_planning_service::ResolveRobotConfig(param_robot_config,
+                                                  proto_robot_config);
   if (robot_config_resolution.param_overrides_proto) {
     RCLCPP_WARN(
         node->get_logger(),
@@ -742,7 +750,7 @@ int main(int argc, char** argv) {
 
   RCLCPP_INFO(node->get_logger(),
               "MoveIt Planning Service started (robot_config: '%s').",
-              node->get_parameter("robot_config").as_string().c_str());
+              robot_config_resolution.resolved_config.c_str());
   RCLCPP_INFO(node->get_logger(), "Ready to receive requests at:");
   RCLCPP_INFO(node->get_logger(), " - motion_planning/get_motion_plan");
   RCLCPP_INFO(node->get_logger(), " - grasp_planning/plan_grasps (action)");

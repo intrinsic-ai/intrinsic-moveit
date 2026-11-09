@@ -108,7 +108,8 @@ WORKDIR /opt/ros/overlay
 RUN mkdir -p /opt/ros/overlay/src
 
 # Add only local workspace packages to this layer so changes only rebuild the overlay
-ADD third_party/robot_hardware_descriptions /opt/ros/overlay/src/third_party/robot_hardware_descriptions
+ADD third_party/robot_meshes_vendor /opt/ros/overlay/src/third_party/robot_meshes_vendor
+ADD robot_hardware_descriptions /opt/ros/overlay/src/robot_hardware_descriptions
 ADD third_party/omts_moveit_config /opt/ros/overlay/src/third_party/omts_moveit_config
 ADD third_party/lab_bb_01_moveit_config /opt/ros/overlay/src/third_party/lab_bb_01_moveit_config
 ADD moveit_planning_service /opt/ros/overlay/src/moveit_planning_service

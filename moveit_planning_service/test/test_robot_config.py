@@ -20,12 +20,14 @@ from pathlib import Path
 from ament_index_python.packages import PackageNotFoundError
 from ament_index_python.packages import get_package_share_directory
 from google.protobuf import descriptor_pb2
+from google.protobuf import text_format
 from launch import LaunchContext
 from launch.actions import DeclareLaunchArgument
 from launch.actions import IncludeLaunchDescription
 from launch.actions import OpaqueFunction
 from launch_ros.actions import Node
 from launch_ros.utilities import evaluate_parameters
+from launch_ros.utilities import normalize_parameters
 from moveit_configs_utils import MoveItConfigsBuilder
 import pytest
 
@@ -157,8 +159,7 @@ def test_find_package_file_falls_back_to_env_prefixes(
         ("omts", "omts"),
         ("OMTS", "omts"),
         ("lab_bb_01", "lab_bb_01"),
-        ("lab-bb-01", "lab_bb_01"),
-        ("  LAB-BB-01  ", "lab_bb_01"),
+        ("  LAB_BB_01\t\n\f\v  ", "lab_bb_01"),
     ],
 )
 def test_normalize_robot_config_valid(raw: str, expected: str):
@@ -167,7 +168,17 @@ def test_normalize_robot_config_valid(raw: str, expected: str):
 
 @pytest.mark.parametrize(
     "invalid_value",
-    ["", "   ", "ur10e", "../omts", "bad/name", "lab_bb_02"],
+    [
+        "",
+        "   ",
+        "\u00a0omts",
+        "lab-bb-01",
+        "LAB-BB-01",
+        "ur10e",
+        "../omts",
+        "bad/name",
+        "lab_bb_02",
+    ],
 )
 def test_normalize_robot_config_invalid(invalid_value: str):
     with pytest.raises(ValueError) as exc_info:
@@ -175,6 +186,38 @@ def test_normalize_robot_config_invalid(invalid_value: str):
     msg = str(exc_info.value)
     assert "omts" in msg
     assert "lab_bb_01" in msg
+
+
+def test_load_runtime_config_message_classes_isolates_descriptor_pools(
+    tmp_path: Path,
+):
+    desc_paths = default_descriptor_paths()
+    rc_cls_1, sc_cls_1 = load_runtime_config_message_classes(desc_paths)
+    rc_cls_2, sc_cls_2 = load_runtime_config_message_classes(desc_paths)
+    assert rc_cls_1.DESCRIPTOR.file.pool is not rc_cls_2.DESCRIPTOR.file.pool
+    assert sc_cls_1.DESCRIPTOR.file.pool is not sc_cls_2.DESCRIPTOR.file.pool
+
+    # Loading a modified FileDescriptorProto under the same .proto filename in a
+    # subsequent call must not conflict with any global descriptor pool.
+    modified_service_desc = tmp_path / "modified_service_protos.desc"
+    svc_fds = descriptor_pb2.FileDescriptorSet.FromString(
+        desc_paths[1].read_bytes()
+    )
+    for fp in svc_fds.file:
+        if fp.package == "intrinsic":
+            for msg in fp.message_type:
+                if msg.name == "MoveItPlanningServiceConfig":
+                    extra = msg.field.add()
+                    extra.name = "extra_test_field"
+                    extra.number = 999
+                    extra.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
+                    extra.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
+    modified_service_desc.write_bytes(svc_fds.SerializeToString())
+
+    _, modified_sc_cls = load_runtime_config_message_classes(
+        [desc_paths[0], modified_service_desc]
+    )
+    assert hasattr(modified_sc_cls(), "extra_test_field")
 
 
 def test_resolve_robot_config_from_runtime_pb(tmp_path: Path):
@@ -185,11 +228,12 @@ def test_resolve_robot_config_from_runtime_pb(tmp_path: Path):
     assert resolve_robot_config("", str(pb_path)) == "lab_bb_01"
 
 
-def test_resolve_robot_config_hyphenated_in_runtime_pb(tmp_path: Path):
+def test_resolve_robot_config_hyphenated_in_runtime_pb_raises(tmp_path: Path):
     pb_path = _write_runtime_context_pb(
         tmp_path / "runtime_config.pb", robot_config_value="lab-bb-01"
     )
-    assert resolve_robot_config("", str(pb_path)) == "lab_bb_01"
+    with pytest.raises(ValueError, match="lab_bb_01"):
+        resolve_robot_config("", str(pb_path))
 
 
 def test_resolve_robot_config_cli_overrides_runtime_pb(tmp_path: Path):
@@ -201,7 +245,7 @@ def test_resolve_robot_config_cli_overrides_runtime_pb(tmp_path: Path):
     pb_omts = _write_runtime_context_pb(
         tmp_path / "omts.pb", robot_config_value="omts"
     )
-    assert resolve_robot_config("lab-bb-01", str(pb_omts)) == "lab_bb_01"
+    assert resolve_robot_config("lab_bb_01", str(pb_omts)) == "lab_bb_01"
 
 
 def test_resolve_robot_config_fallbacks_to_default(tmp_path: Path):
@@ -338,9 +382,7 @@ def _matches_pkg(location: str, pkg_name: str) -> bool:
     return any(location.startswith(prefix) for prefix in candidates)
 
 
-def _planning_node_robot_config(
-    context: LaunchContext, actions: list
-) -> str:
+def _assert_has_planning_node(actions: list) -> None:
     planning_nodes = [
         action
         for action in actions
@@ -348,8 +390,16 @@ def _planning_node_robot_config(
         and action.node_executable == "moveit_planning_node"
     ]
     assert len(planning_nodes) == 1
+
+
+def _evaluated_planning_node_robot_config(
+    service_launch, context: LaunchContext, resolved_config: str
+) -> str:
     evaluated_params = evaluate_parameters(
-        context, planning_nodes[0]._Node__parameters
+        context,
+        normalize_parameters(
+            service_launch.build_planning_node_params(resolved_config, {})
+        ),
     )
     merged: dict[str, object] = {}
     for entry in evaluated_params:
@@ -378,23 +428,35 @@ def test_service_launch_selects_expected_moveit_config(
     assert all(
         _matches_pkg(loc, "omts_moveit_config") for loc in default_includes
     )
-    assert _planning_node_robot_config(default_ctx, default_actions) == "omts"
+    _assert_has_planning_node(default_actions)
+    assert (
+        _evaluated_planning_node_robot_config(
+            service_launch, default_ctx, "omts"
+        )
+        == "omts"
+    )
 
-    # CLI override robot_config:="lab-bb-01" -> lab_bb_01_moveit_config
+    # CLI override robot_config:="lab_bb_01" -> lab_bb_01_moveit_config
     lab_ctx, lab_actions = _evaluate_launch_description(
         service_launch.generate_launch_description(),
-        {"robot_config": "lab-bb-01"},
+        {"robot_config": "lab_bb_01"},
     )
     lab_includes = _resolved_include_locations(lab_ctx, lab_actions)
     assert len(lab_includes) >= 4
     assert all(
         _matches_pkg(loc, "lab_bb_01_moveit_config") for loc in lab_includes
     )
-    assert _planning_node_robot_config(lab_ctx, lab_actions) == "lab_bb_01"
+    _assert_has_planning_node(lab_actions)
+    assert (
+        _evaluated_planning_node_robot_config(
+            service_launch, lab_ctx, "lab_bb_01"
+        )
+        == "lab_bb_01"
+    )
 
     # Runtime protobuf selection when CLI robot_config is empty
     pb_lab = _write_runtime_context_pb(
-        tmp_path / "runtime_config.pb", robot_config_value="lab-bb-01"
+        tmp_path / "runtime_config.pb", robot_config_value="lab_bb_01"
     )
     ctx = LaunchContext()
     for entity in service_launch.generate_launch_description().entities:
@@ -409,9 +471,9 @@ def test_service_launch_selects_expected_moveit_config(
         _matches_pkg(loc, "lab_bb_01_moveit_config")
         for loc in runtime_includes
     )
-    assert _planning_node_robot_config(ctx, runtime_actions) == "lab_bb_01"
+    _assert_has_planning_node(runtime_actions)
 
-    # CLI robot_config:="omts" overrides runtime_config.pb ("lab-bb-01")
+    # CLI robot_config:="omts" overrides runtime_config.pb ("lab_bb_01")
     override_ctx = LaunchContext()
     override_ctx.launch_configurations["robot_config"] = "omts"
     for entity in service_launch.generate_launch_description().entities:
@@ -427,9 +489,7 @@ def test_service_launch_selects_expected_moveit_config(
     assert all(
         _matches_pkg(loc, "omts_moveit_config") for loc in override_includes
     )
-    assert (
-        _planning_node_robot_config(override_ctx, override_actions) == "omts"
-    )
+    _assert_has_planning_node(override_actions)
 
     # Corrupt runtime_config.pb fails closed during launch instead of loading omts
     corrupt_pb = tmp_path / "corrupt_runtime.pb"
@@ -439,12 +499,13 @@ def test_service_launch_selects_expected_moveit_config(
             ctx, runtime_config_path=str(corrupt_pb)
         )
 
-    # Invalid CLI robot_config -> ValueError
-    with pytest.raises(ValueError):
-        _evaluate_launch_description(
-            service_launch.generate_launch_description(),
-            {"robot_config": "invalid_cell"},
-        )
+    # Invalid CLI robot_config (including hyphenated "lab-bb-01") -> ValueError
+    for bad_cfg in ("invalid_cell", "lab-bb-01"):
+        with pytest.raises(ValueError):
+            _evaluate_launch_description(
+                service_launch.generate_launch_description(),
+                {"robot_config": bad_cfg},
+            )
 
 
 def test_grasp_planning_test_launch_selects_expected_moveit_config():
@@ -461,7 +522,7 @@ def test_grasp_planning_test_launch_selects_expected_moveit_config():
 
     lab_ctx, lab_actions = _evaluate_launch_description(
         demo_launch.generate_launch_description(),
-        {"robot_config": "lab-bb-01"},
+        {"robot_config": "lab_bb_01"},
     )
     lab_includes = _resolved_include_locations(lab_ctx, lab_actions)
     assert len(lab_includes) >= 1
@@ -469,11 +530,12 @@ def test_grasp_planning_test_launch_selects_expected_moveit_config():
         _matches_pkg(loc, "lab_bb_01_moveit_config") for loc in lab_includes
     )
 
-    with pytest.raises(ValueError):
-        _evaluate_launch_description(
-            demo_launch.generate_launch_description(),
-            {"robot_config": "nonexistent"},
-        )
+    for bad_cfg in ("nonexistent", "lab-bb-01"):
+        with pytest.raises(ValueError):
+            _evaluate_launch_description(
+                demo_launch.generate_launch_description(),
+                {"robot_config": bad_cfg},
+            )
 
 
 def test_moveit_configs_joint_limits_match_workcells():
@@ -504,4 +566,38 @@ def test_moveit_configs_joint_limits_match_workcells():
     )
     assert lab_limits["wrist_3_joint"]["max_position"] == pytest.approx(
         2.0 * math.pi, rel=1e-6
+    )
+
+
+def test_reference_lab_bb_01_pbtxt_preserves_cluster_endpoints(tmp_path: Path):
+    repo_root = Path(__file__).resolve().parents[2]
+    lab_pbtxt = (
+        repo_root / "configs" / "moveit_planning_service_lab_bb_01_config.pbtxt"
+    )
+    if not lab_pbtxt.is_file():
+        pytest.skip("Repository configs/ directory not present in environment")
+
+    runtime_ctx_cls, service_cfg_cls = load_runtime_config_message_classes()
+    pool = service_cfg_cls.DESCRIPTOR.file.pool
+    ctx_msg = runtime_ctx_cls()
+    text_format.Parse(
+        lab_pbtxt.read_text(encoding="utf-8"),
+        ctx_msg.config,
+        descriptor_pool=pool,
+    )
+
+    pb_file = tmp_path / "lab_bb_01_runtime.pb"
+    pb_file.write_bytes(ctx_msg.SerializeToString())
+    assert resolve_robot_config("", str(pb_file)) == "lab_bb_01"
+
+    cfg_msg = service_cfg_cls()
+    assert ctx_msg.config.Unpack(cfg_msg)
+    assert cfg_msg.robot_config == "lab_bb_01"
+    assert (
+        cfg_msg.intrinsic_core_ingress_address
+        == "istio-ingressgateway.app-ingress.svc.cluster.local:80"
+    )
+    assert (
+        cfg_msg.zenoh_router_address
+        == "tcp/zenoh-router.app-intrinsic-base.svc.cluster.local:7447"
     )

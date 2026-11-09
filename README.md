@@ -4,14 +4,14 @@
 
 This repository provides MoveIt and MoveIt Task Constructor planning services and skills for robotic applications running on [Intrinsic Core](https://github.com/intrinsic-ai/intrinsic-core). It includes a unified ROS 2 planning service (consolidating planning, in-process World collision scene synchronization, and static root/base TF broadcasting alongside upstream `flowstate_ros_bridge`) and C++ client skills for motion and grasp planning.
 
-Intrinsic Core is the primary supported deployment environment, supporting the `omts` (UR5e) and `lab-bb-01` (UR3e) workcell hardware configurations of [Intrinsic Open Machine Tending Solution](https://github.com/intrinsic-ai/intrinsic-omts). Users with a Flowstate license can also deploy and use these components through the Flowstate platform, see [here](docs/flowstate_integration.md).
+Intrinsic Core is the primary supported deployment environment, supporting the `omts` (UR5e) and `lab_bb_01` (UR3e) workcell hardware configurations of [Intrinsic Open Machine Tending Solution](https://github.com/intrinsic-ai/intrinsic-omts). Users with a Flowstate license can also deploy and use these components through the Flowstate platform, see [here](docs/flowstate_integration.md).
 
 > [!NOTE]
 > This repository is still undergoing active development. Check out [our next steps](#next-steps) for what's to come.
 
 ## Repository Structure
 
-* [`configs/`](./configs/): Reference platform service configurations (e.g. [`flowstate_ros_bridge_config.pbtxt`](./configs/flowstate_ros_bridge_config.pbtxt)).
+* [`configs/`](./configs/): Reference platform service configurations (e.g. [`flowstate_ros_bridge_config.pbtxt`](./configs/flowstate_ros_bridge_config.pbtxt) and [`moveit_planning_service_lab_bb_01_config.pbtxt`](./configs/moveit_planning_service_lab_bb_01_config.pbtxt)).
 * [`docs/`](./docs/): Configuration and architecture guides:
   * [`flowstate_integration.md`](./docs/flowstate_integration.md): Instructions on running this integration with Flowstate.
   * [`flowstate_ros_bridge_configuration.md`](./docs/flowstate_ros_bridge_configuration.md): Required `flowstate_ros_bridge` service configuration values, and how to apply them on Intrinsic Core and Flowstate.
@@ -19,7 +19,8 @@ Intrinsic Core is the primary supported deployment environment, supporting the `
 * [`moveit_planning_interfaces/`](./moveit_planning_interfaces/): ROS 2 action and message definitions for grasp planning (e.g. `PlanGrasps.action`, `GraspCandidate.msg`, and `RankedGrasp.msg`).
 * [`moveit_plan_motion_skill/`](./moveit_plan_motion_skill/): C++ client skill executing motion planning requests against the planning service.
 * [`moveit_plan_grasp_skill/`](./moveit_plan_grasp_skill/): C++ client skill executing grasp planning requests against the planning service.
-* [`third_party/robot_hardware_descriptions/`](./third_party/robot_hardware_descriptions/): Hardware descriptions (URDF/Xacro macros and meshes) for the `omts` (UR5e) and `lab_bb_01` (UR3e) workcells with a Robotiq Hand-E gripper and wrist-mounted Orbbec Gemini 335Le camera.
+* [`robot_hardware_descriptions/`](./robot_hardware_descriptions/): First-party hardware descriptions (URDF/Xacro macros and Robotiq Hand-E / Orbbec Gemini 335Le meshes) for the `omts` (UR5e) and `lab_bb_01` (UR3e) workcells.
+* [`third_party/robot_meshes_vendor/`](./third_party/robot_meshes_vendor/): Vendored Universal Robots UR3e and UR5e visual and collision meshes under their upstream BSD-3-Clause licenses.
 * [`third_party/omts_moveit_config/`](./third_party/omts_moveit_config/) and [`third_party/lab_bb_01_moveit_config/`](./third_party/lab_bb_01_moveit_config/): Per-workcell MoveIt configuration packages containing SRDF, kinematics solver parameters, joint limits, controllers, and planning pipelines (OMPL, STOMP, Pilz).
 * [`Makefile`](./Makefile): Automation script for building OCI container images, bundling assets and running tests.
 * [`Dockerfile.service`](./Dockerfile.service): Multi-stage Dockerfile building and packaging `moveit_planning_service` into runtime container images.
@@ -81,7 +82,7 @@ export ROS_DOMAIN_ID=0
 export ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/127.0.0.1:7447"]'
 
 # Launch unified planning service, with visualization using Rviz (defaults to robot_config:=omts;
-# pass robot_config:=lab-bb-01 for the UR3e lab-bb-01 workcell)
+# pass robot_config:=lab_bb_01 for the UR3e lab_bb_01 workcell)
 source install/setup.bash
 ros2 launch moveit_planning_service service.launch.py \
     robot_config:=omts \
@@ -100,7 +101,7 @@ Once launched with rviz, the MoveIt planning scene and robot state should be in 
 
 #### Option B: Standalone / Offline Mode (Mock Hardware)
 
-For local testing without an Intrinsic Core connection or physical hardware, set `use_mock_hardware:=true` and `expect_collision_objects:=false` (and optionally `robot_config:=omts` or `robot_config:=lab-bb-01`):
+For local testing without an Intrinsic Core connection or physical hardware, set `use_mock_hardware:=true` and `expect_collision_objects:=false` (and optionally `robot_config:=omts` or `robot_config:=lab_bb_01`):
 
 ```bash
 source install/setup.bash
@@ -276,7 +277,7 @@ sudo ln -s /usr/lib/x86_64-linux-gnu/libxml2.so.16 /usr/lib/x86_64-linux-gnu/lib
 ## Next Steps
 
 * **Motion planning**: `moveit_plan_motion_skill`, and motion planning capabilities on `moveit_planning_service`.
-* **Single source of truth for hardware descriptions**: use upstream URDFs instead of vendoring them in `third_party/robot_hardware_descriptions`.
+* **Single source of truth for hardware descriptions**: use upstream URDFs and meshes instead of maintaining them locally in `robot_hardware_descriptions` and `third_party/robot_meshes_vendor`.
 * **Skills to use actions**: interaction between skills and services should be done via ROS actions, instead of services.
 * **Pixi workspace migration**: better dependency control and faster build times.
 * **Abstract hardware definitions**: to better support different hardware configurations.

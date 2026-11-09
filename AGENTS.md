@@ -6,13 +6,14 @@ Intrinsic Core is the primary supported environment. Licensed users can also dep
 
 ## Repository Structure
 
-* [`configs/`](./configs/): Reference platform service configurations (e.g. [`flowstate_ros_bridge_config.pbtxt`](./configs/flowstate_ros_bridge_config.pbtxt)).
+* [`configs/`](./configs/): Reference platform service configurations (e.g. [`flowstate_ros_bridge_config.pbtxt`](./configs/flowstate_ros_bridge_config.pbtxt) and [`moveit_planning_service_lab_bb_01_config.pbtxt`](./configs/moveit_planning_service_lab_bb_01_config.pbtxt)).
 * [`docs/`](./docs/): Configuration and deployment guides ([`flowstate_integration.md`](./docs/flowstate_integration.md), [`flowstate_ros_bridge_configuration.md`](./docs/flowstate_ros_bridge_configuration.md)).
 * [`moveit_planning_service/`](./moveit_planning_service/): Consolidated ROS 2 planning service exposing motion planning through `motion_planning/get_motion_plan` and grasp planning through the `grasp_planning/plan_grasps` action, with in-process World scene synchronization and static root/base TF broadcasting.
 * [`moveit_planning_interfaces/`](./moveit_planning_interfaces/): ROS 2 action and message definitions for grasp planning (e.g. `PlanGrasps.action`, `GraspCandidate.msg`, and `RankedGrasp.msg`).
 * [`moveit_plan_motion_skill/`](./moveit_plan_motion_skill/): C++ client skill executing geometric motion planning requests against the planning service.
 * [`moveit_plan_grasp_skill/`](./moveit_plan_grasp_skill/): C++ client skill that sends grasp-planning action goals to the planning service.
-* [`third_party/robot_hardware_descriptions/`](./third_party/robot_hardware_descriptions/): Hardware descriptions (URDF/Xacro macros and meshes) for the `omts` (UR5e) and `lab_bb_01` (UR3e) workcells with a Robotiq Hand-E gripper and wrist-mounted Orbbec Gemini 335Le camera.
+* [`robot_hardware_descriptions/`](./robot_hardware_descriptions/): First-party hardware descriptions (URDF/Xacro macros and Robotiq Hand-E / Orbbec Gemini 335Le meshes) for the `omts` (UR5e) and `lab_bb_01` (UR3e) workcells.
+* [`third_party/robot_meshes_vendor/`](./third_party/robot_meshes_vendor/): Vendored Universal Robots UR3e and UR5e visual and collision meshes under their upstream BSD-3-Clause licenses.
 * [`third_party/omts_moveit_config/`](./third_party/omts_moveit_config/) and [`third_party/lab_bb_01_moveit_config/`](./third_party/lab_bb_01_moveit_config/): Per-workcell MoveIt configuration packages containing SRDF, kinematics solvers, joint limits, controllers, and planning pipelines (OMPL, STOMP, Pilz).
 * [`Dockerfile.service`](./Dockerfile.service): Multi-stage Dockerfile building and packaging `moveit_planning_service` into OCI container images.
 * [`Dockerfile.skill`](./Dockerfile.skill): Dockerfile building and packaging the `moveit_plan_motion_skill` and `moveit_plan_grasp_skill` into OCI container images.
@@ -54,7 +55,7 @@ Deploy the unified `moveit_planning_service`:
 make install_moveit_planning_service
 
 # 2. Add MoveIt Planning Service to active solution (defaults to robot_config="omts";
-#    set MoveItPlanningServiceConfig.robot_config="lab_bb_01" for lab-bb-01 — see docs/flowstate_integration.md)
+#    pass SERVICE_CONFIG_FLAGS="--config=..." with robot_config="lab_bb_01" for lab_bb_01 — see docs/flowstate_integration.md)
 make add_moveit_planning_service
 ```
 
@@ -86,7 +87,7 @@ rosdep install --from-paths . --ignore-src -r -y
 
 cd <workspace_dir>
 colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release --symlink-install --packages-up-to moveit_planning_service moveit_plan_grasp_skill moveit_plan_motion_skill
-colcon test --packages-select robot_hardware_descriptions moveit_planning_service moveit_plan_grasp_skill moveit_plan_motion_skill
+colcon test --packages-select robot_meshes_vendor robot_hardware_descriptions moveit_planning_service moveit_plan_grasp_skill moveit_plan_motion_skill
 colcon test-result --verbose
 
 # Code style and linting (clang-format)
@@ -125,7 +126,7 @@ export ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/127.0.0.1:74
 source install/setup.bash
 ros2 launch moveit_planning_service flowstate_ros_bridge.launch.py
 
-# Terminal 3: Launch MoveIt planning service (defaults to robot_config:=omts; pass robot_config:=lab-bb-01 for lab-bb-01)
+# Terminal 3: Launch MoveIt planning service (defaults to robot_config:=omts; pass robot_config:=lab_bb_01 for lab_bb_01)
 source install/setup.bash
 ros2 launch moveit_planning_service service.launch.py robot_config:=omts headless:=false start_service_status_monitor:=false
 ```
@@ -203,7 +204,7 @@ ros2 run moveit_planning_service benchmark_grasp_planning.py \
 * **Motion Planning Requirements & Geometric Planning Design**:
   * **MoveIt/MTC Dependencies**: The planning node requires `robot_description` (URDF), `robot_description_semantic` (SRDF), `robot_description_kinematics`, and `planning_pipelines` to be loaded as parameters via `service.launch.py` using `MoveItConfigsBuilder` from `<robot_config>_moveit_config` (`omts_moveit_config` or `lab_bb_01_moveit_config`).
   * **Launch Architecture & Launch Arguments**: `moveit_planning_service/launch/service.launch.py` orchestrates the complete MoveIt ecosystem, launching `robot_state_publisher`, `move_group` (planning scene & execution action server), `ros2_control_node` with controller spawners, `moveit_planning_node`, `status_monitor`, and RViz2. Key launch arguments include:
-    * `robot_config` (default: `""`, resolved via `CLI > /etc/intrinsic/runtime_config.pb > "omts"`): Workcell robot configuration to load (`"omts"` for the UR5e OMTS cell, or `"lab_bb_01"` / `"lab-bb-01"` for the UR3e `lab-bb-01` cell). Normalized and validated at launch via `moveit_planning_service/robot_config.py` (failing closed if a present non-empty `runtime_config.pb` cannot be read or decoded) and in `moveit_planning_node` via `include/moveit_planning_service/robot_config.hpp` (`ResolveRobotConfig`, which also warns if the ROS parameter differs from `runtime_config.pb`).
+    * `robot_config` (default: `""`, resolved via `CLI > /etc/intrinsic/runtime_config.pb > "omts"`): Workcell robot configuration to load (`"omts"` for the UR5e OMTS cell, or `"lab_bb_01"` for the UR3e `lab_bb_01` cell). Normalized and validated at launch via `moveit_planning_service/robot_config.py` and in `moveit_planning_node` via `include/moveit_planning_service/robot_config.hpp` (`LoadRuntimeServiceConfig` + `ResolveRobotConfig`, both failing closed if a present non-empty `runtime_config.pb` cannot be read or decoded, and warning if the ROS parameter differs from `runtime_config.pb`). Note that `robot_config` defaults to `""` so `CLI > runtime_config.pb > "omts"`, whereas the remaining `MoveItPlanningServiceConfig` parameters carry non-empty local launch defaults that `runtime_config.pb` overrides when present.
     * `headless` (default: `true`): Controls UI visualization. When `true`, disables RViz; setting `headless:=false` enables RViz for local visual debugging.
     * `start_service_status_monitor` (default: `true`): Controls whether the dedicated `status_monitor` node is launched to report operational `ServiceState` to the platform. Set to `false` for offline or standalone testing where reporting to the platform is not desired.
     * `use_mock_hardware` (default: `false`): When `true`, starts `ros2_control_node` with controller spawners for offline testing without platform connection.
@@ -264,7 +265,7 @@ ros2 run moveit_planning_service benchmark_grasp_planning.py \
 
   * CI runs style checks on pull requests via GitHub Actions (`Makefile` excludes `third_party/` from `clang-format`). Always verify that modified C++ and `.proto` files are cleanly formatted and pass `clang-format`.
 * **License & Copyright Policy**:
-  * The repository is licensed under Apache 2.0, while third-party packages and vendored meshes under `third_party/` (`omts_moveit_config`, `lab_bb_01_moveit_config`, and UR5e/UR3e visual and collision meshes in `robot_hardware_descriptions`) retain their upstream **BSD-3-Clause** licenses.
+  * The repository is licensed under Apache 2.0, while third-party packages and vendored meshes under `third_party/` (`omts_moveit_config`, `lab_bb_01_moveit_config`, and `robot_meshes_vendor` holding the UR5e/UR3e visual and collision meshes) retain their upstream **BSD-3-Clause** licenses.
   * All first-party source files (`.cpp`, `.hpp`, `.h`, `.proto`, `.py`, `CMakeLists.txt`, `Dockerfile.*`, `Makefile`, etc.) must start with the copyright header:
 
       ```text

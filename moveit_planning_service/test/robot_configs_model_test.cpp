@@ -37,6 +37,7 @@
 #include <vector>
 
 #include "moveit_planning_service/grasp_planning_pipeline.hpp"
+#include "moveit_planning_service/robot_config.hpp"
 
 namespace {
 
@@ -46,6 +47,20 @@ struct RobotConfigTestCase {
   double expected_elbow_x;
   double expected_wrist_max_vel;
 };
+
+const std::array<RobotConfigTestCase, 2> kMultiCellTestCases = {{
+    {"omts", 0.14, 0.425, 3.1415927},
+    {"lab_bb_01", 0.128, 0.24355, 6.2831853},
+}};
+
+TEST(RobotConfigsAllowlistParityTest, MatchesParameterizedTestConfigs) {
+  ASSERT_EQ(moveit_planning_service::kSupportedRobotConfigs.size(),
+            kMultiCellTestCases.size());
+  for (std::size_t i = 0; i < kMultiCellTestCases.size(); ++i) {
+    EXPECT_EQ(moveit_planning_service::kSupportedRobotConfigs[i],
+              kMultiCellTestCases[i].config_name);
+  }
+}
 
 std::string RunCommandCaptureStdout(const std::string& cmd, int* exit_code) {
   std::array<char, 4096> buffer{};
@@ -176,9 +191,18 @@ TEST_P(RobotConfigsModelTest, SemanticKinematicsAndCollisionInvariantsHold) {
   };
   EXPECT_EQ(arm_jmg->getActiveJointModelNames(), expected_arm_joints);
 
-  std::map<std::string, double> state_values;
-  EXPECT_TRUE(arm_jmg->getVariableDefaultPositions("home", state_values));
-  EXPECT_TRUE(arm_jmg->getVariableDefaultPositions("ready", state_values));
+  std::map<std::string, double> home_values;
+  ASSERT_TRUE(arm_jmg->getVariableDefaultPositions("home", home_values));
+  if (tc.config_name == "lab_bb_01") {
+    EXPECT_NEAR(home_values.at("shoulder_pan_joint"), 1.5707, 1e-6);
+    EXPECT_NEAR(home_values.at("shoulder_lift_joint"), -1.5707, 1e-6);
+    EXPECT_NEAR(home_values.at("elbow_joint"), 1.5707, 1e-6);
+    EXPECT_NEAR(home_values.at("wrist_1_joint"), -1.5707, 1e-6);
+    EXPECT_NEAR(home_values.at("wrist_2_joint"), -1.5707, 1e-6);
+    EXPECT_NEAR(home_values.at("wrist_3_joint"), 3.140, 1e-6);
+  }
+  std::map<std::string, double> ready_values;
+  EXPECT_TRUE(arm_jmg->getVariableDefaultPositions("ready", ready_values));
 
   // End-effector group invariants.
   const auto* hand_jmg = robot_model->getJointModelGroup("hand");
@@ -240,6 +264,29 @@ TEST_P(RobotConfigsModelTest, SemanticKinematicsAndCollisionInvariantsHold) {
                                        allowed_type));
   EXPECT_FALSE(acm.getAllowedCollision("upper_arm_link",
                                        "hande_hande_base_link", allowed_type));
+  if (tc.config_name == "lab_bb_01") {
+    EXPECT_FALSE(
+        acm.getAllowedCollision("forearm_link", "wrist_2_link", allowed_type));
+    moveit::core::RobotState wrist_collision_state(robot_model);
+    wrist_collision_state.setToDefaultValues();
+    wrist_collision_state.setJointPositions("wrist_1_joint",
+                                            std::vector<double>{M_PI / 2.0});
+    wrist_collision_state.setJointPositions(
+        "wrist_2_joint", std::vector<double>{150.0 * M_PI / 180.0});
+    wrist_collision_state.update();
+    collision_detection::CollisionRequest wrist_req;
+    wrist_req.contacts = true;
+    wrist_req.max_contacts = 50;
+    collision_detection::CollisionResult wrist_res;
+    scene.checkSelfCollision(wrist_req, wrist_res, wrist_collision_state);
+    EXPECT_TRUE(wrist_res.collision);
+    const bool has_forearm_wrist2_contact =
+        wrist_res.contacts.count({"forearm_link", "wrist_2_link"}) > 0 ||
+        wrist_res.contacts.count({"wrist_2_link", "forearm_link"}) > 0;
+    EXPECT_TRUE(has_forearm_wrist2_contact)
+        << "Expected forearm_link <-> wrist_2_link contact on UR3e; got: "
+        << FormatContacts(wrist_res.contacts);
+  }
 
   for (const std::string& arm_state_name :
        {std::string(""), std::string("home"), std::string("ready")}) {
@@ -328,9 +375,7 @@ TEST_P(RobotConfigsModelTest, GraspPlanningPipelineAcceptsRobotModel) {
 
 INSTANTIATE_TEST_SUITE_P(
     MultiCellConfigs, RobotConfigsModelTest,
-    ::testing::Values(RobotConfigTestCase{"omts", 0.14, 0.425, 3.1415927},
-                      RobotConfigTestCase{"lab_bb_01", 0.128, 0.24355,
-                                          6.2831853}),
+    ::testing::ValuesIn(kMultiCellTestCases),
     [](const ::testing::TestParamInfo<RobotConfigTestCase>& info) {
       return info.param.config_name;
     });

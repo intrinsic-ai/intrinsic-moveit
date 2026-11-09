@@ -34,7 +34,7 @@ import pytest  # noqa: E402
 @pytest.mark.launch_test
 @launch_testing.markers.keep_alive
 def generate_test_description():
-    return build_grasp_planning_test_description(robot_config='lab-bb-01')
+    return build_grasp_planning_test_description(robot_config='lab_bb_01')
 
 
 generate_test_description.__ready_to_test_action_timeout__ = 60.0
@@ -43,7 +43,7 @@ generate_test_description.__ready_to_test_action_timeout__ = 60.0
 class TestGraspPlanningIntegrationLabBb01(GraspPlanningIntegrationTestBase):
     EXPECTED_ROBOT_CONFIG = 'lab_bb_01'
     EXPECTED_ROBOT_NAME = 'lab_bb_01'
-    EXPECTED_MESH_SUBDIR = 'package://robot_hardware_descriptions/urdf/ur3e/'
+    EXPECTED_MESH_SUBDIR = 'package://robot_meshes_vendor/meshes/ur3e/'
     BOX_1_XYZ = (0.24, -0.14, 0.015)
     BOX_2_XYZ = (0.24, 0.14, 0.015)
 

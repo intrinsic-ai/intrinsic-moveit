@@ -34,7 +34,7 @@ import pytest  # noqa: E402
 @pytest.mark.launch_test
 @launch_testing.markers.keep_alive
 def generate_test_description():
-    return build_grasp_planning_test_description()
+    return build_grasp_planning_test_description(robot_config='omts')
 
 
 generate_test_description.__ready_to_test_action_timeout__ = 60.0
@@ -43,7 +43,7 @@ generate_test_description.__ready_to_test_action_timeout__ = 60.0
 class TestGraspPlanningIntegration(GraspPlanningIntegrationTestBase):
     EXPECTED_ROBOT_CONFIG = 'omts'
     EXPECTED_ROBOT_NAME = 'omts'
-    EXPECTED_MESH_SUBDIR = 'package://robot_hardware_descriptions/urdf/ur5e/'
+    EXPECTED_MESH_SUBDIR = 'package://robot_meshes_vendor/meshes/ur5e/'
     BOX_1_XYZ = (0.3, -0.18, 0.015)
     BOX_2_XYZ = (0.3, 0.18, 0.015)
 
