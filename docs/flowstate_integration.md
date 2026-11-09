@@ -43,34 +43,6 @@ make add_moveit_planning_service
 > [!NOTE]
 > **Upstream Bridge Requirement**: The active cluster solution requires a running `flowstate_ros_bridge` service configured for the workcell. For instructions on applying the configuration for Flowstate (via the Flowstate platform UI) or Intrinsic Core (via `inctl` or Bazel), see [`docs/flowstate_ros_bridge_configuration.md`](./flowstate_ros_bridge_configuration.md).
 
-### Selecting the Workcell Robot Configuration
-
-A single `moveit_planning_service` bundle packages both supported workcell configurations (`omts` with UR5e and `lab_bb_01` with UR3e). At service startup, `service.launch.py` and `moveit_planning_node` resolve `robot_config` from `/etc/intrinsic/runtime_config.pb` (`MoveItPlanningServiceConfig.robot_config`, defaulting to `"omts"`):
-
-* **OMTS (UR5e, default)**: Uses [`moveit_planning_service_default_config.pbtxt`](../moveit_planning_service/moveit_planning_service_default_config.pbtxt) (`robot_config: "omts"`). No extra flags are required when running `make add_moveit_planning_service`.
-* **`lab_bb_01` (UR3e)**: Set `robot_config: "lab_bb_01"` on the `moveit_planning_service` instance configuration:
-  * **Flowstate UI**: Edit the `moveit_planning_service` instance configuration in your solution and set `robot_config` to `"lab_bb_01"`.
-  * **`inctl` / `Makefile` CLI**: Because `inctl service add --config` replaces the full `MoveItPlanningServiceConfig` message rather than merging individual fields, encode the complete reference configuration at [`configs/moveit_planning_service_lab_bb_01_config.pbtxt`](../configs/moveit_planning_service_lab_bb_01_config.pbtxt) (which preserves the in-cluster Ingress and Zenoh DNS endpoints) into a `google.protobuf.Any` binary protobuf (`.binarypb`):
-
-    ```bash
-    # Using descriptor sets extracted by `make moveit_planning_service_proto_desc`
-    # (or from <ros2-ws>/install/{moveit_planning_service,intrinsic_sdk_cmake}/share/.../*.desc):
-    protoc --encode=google.protobuf.Any \
-      --descriptor_set_in=./images/moveit_planning_service_protos.desc:./images/intrinsic_proto.desc \
-      < ./configs/moveit_planning_service_lab_bb_01_config.pbtxt \
-      > ./configs/moveit_planning_service_lab_bb_01_config.binarypb
-
-    # Flowstate cluster (via Makefile):
-    make add_moveit_planning_service \
-      SERVICE_CONFIG_FLAGS="--config=./configs/moveit_planning_service_lab_bb_01_config.binarypb"
-
-    # Or Intrinsic Core cluster (delete any existing instance first):
-    # inctl service delete --address localhost:17080 moveit_planning_service
-    # inctl service add --address localhost:17080 ai.intrinsic.moveit_planning_service \
-    #   --name=moveit_planning_service \
-    #   --config=./configs/moveit_planning_service_lab_bb_01_config.binarypb
-    ```
-
 Clean up when done:
 
 ```bash

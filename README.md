@@ -11,7 +11,7 @@ Intrinsic Core is the primary supported deployment environment, supporting the `
 
 ## Repository Structure
 
-* [`configs/`](./configs/): Reference platform service configurations (e.g. [`flowstate_ros_bridge_config.pbtxt`](./configs/flowstate_ros_bridge_config.pbtxt) and [`moveit_planning_service_lab_bb_01_config.pbtxt`](./configs/moveit_planning_service_lab_bb_01_config.pbtxt)).
+* [`configs/`](./configs/): Reference platform service configurations (e.g. [`flowstate_ros_bridge_config.pbtxt`](./configs/flowstate_ros_bridge_config.pbtxt)).
 * [`docs/`](./docs/): Configuration and architecture guides:
   * [`flowstate_integration.md`](./docs/flowstate_integration.md): Instructions on running this integration with Flowstate.
   * [`flowstate_ros_bridge_configuration.md`](./docs/flowstate_ros_bridge_configuration.md): Required `flowstate_ros_bridge` service configuration values, and how to apply them on Intrinsic Core and Flowstate.
@@ -220,7 +220,7 @@ Always verify startup logs in the terminal (for local runs) or via the **Text Lo
 ```text
 [INFO] [moveit_planning_node]: Publishing static transform: [world -> root]
 [INFO] [moveit_planning_node]: Publishing static transform: [ur_module/base_link -> base_link]
-[INFO] [moveit_planning_node]: MoveIt Planning Service started (robot_config: 'omts').
+[INFO] [moveit_planning_node]: MoveIt Planning Service started.
 [INFO] [moveit_planning_node]: Ready to receive requests at:
 [INFO] [moveit_planning_node]:  - motion_planning/get_motion_plan
 [INFO] [moveit_planning_node]:  - grasp_planning/plan_grasps (action)

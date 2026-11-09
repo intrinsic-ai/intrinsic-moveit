@@ -14,54 +14,47 @@
 
 """Launch RViz visualization for omts or lab_bb_01 robot hardware descriptions."""
 
-import os
-import shlex
-
-from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
-from launch.substitutions import Command, LaunchConfiguration
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.substitutions import FindPackageShare
 
 
 PKG_NAME = 'robot_hardware_descriptions'
 SUPPORTED_ROBOT_CONFIGS = ('omts', 'lab_bb_01')
-_ASCII_WHITESPACE = ' \t\r\n\f\v'
 
 
-def resolve_display_xacro_path(robot_config: str) -> str:
-    """Resolve and validate the top-level Xacro path for a robot_config name."""
-    normalized = robot_config.strip(_ASCII_WHITESPACE).lower()
-    if normalized not in SUPPORTED_ROBOT_CONFIGS:
-        supported = ', '.join(SUPPORTED_ROBOT_CONFIGS)
-        raise ValueError(
-            f"Unsupported robot_config '{robot_config}'. "
-            f'Supported configurations: {supported}'
-        )
-    pkg_share = get_package_share_directory(PKG_NAME)
-    return os.path.join(pkg_share, 'urdf', f'{normalized}.urdf.xacro')
+def build_robot_description_param() -> ParameterValue:
+    """Build the ParameterValue rendering the selected robot_config Xacro."""
+    xacro_file = PathJoinSubstitution([
+        FindPackageShare(PKG_NAME),
+        'urdf',
+        [LaunchConfiguration('robot_config'), '.urdf.xacro'],
+    ])
+    return ParameterValue(Command(['xacro "', xacro_file, '"']), value_type=str)
 
 
-def _launch_setup(context, *args, **kwargs):
-    del args, kwargs
-    robot_config = LaunchConfiguration('robot_config').perform(context)
-    xacro_file = resolve_display_xacro_path(robot_config)
-    pkg_share = get_package_share_directory(PKG_NAME)
-    rviz_config_file = os.path.join(pkg_share, 'rviz', 'display.rviz')
-
-    robot_description = ParameterValue(
-        Command(['xacro ', shlex.quote(xacro_file)]),
-        value_type=str,
+def generate_launch_description():
+    """Generate launch description for interactive URDF visualization."""
+    rviz_config_file = PathJoinSubstitution(
+        [FindPackageShare(PKG_NAME), 'rviz', 'display.rviz']
     )
 
-    return [
+    return LaunchDescription([
+        DeclareLaunchArgument(
+            'robot_config',
+            default_value='omts',
+            choices=list(SUPPORTED_ROBOT_CONFIGS),
+            description="Robot configuration to visualize ('omts' or 'lab_bb_01').",
+        ),
         Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',
             name='robot_state_publisher',
             output='screen',
-            parameters=[{'robot_description': robot_description}],
+            parameters=[{'robot_description': build_robot_description_param()}],
         ),
         Node(
             package='joint_state_publisher_gui',
@@ -75,16 +68,4 @@ def _launch_setup(context, *args, **kwargs):
             output='screen',
             arguments=['-d', rviz_config_file],
         ),
-    ]
-
-
-def generate_launch_description():
-    """Generate launch description for interactive URDF visualization."""
-    return LaunchDescription([
-        DeclareLaunchArgument(
-            'robot_config',
-            default_value='omts',
-            description="Robot configuration to visualize ('omts' or 'lab_bb_01').",
-        ),
-        OpaqueFunction(function=_launch_setup),
     ])

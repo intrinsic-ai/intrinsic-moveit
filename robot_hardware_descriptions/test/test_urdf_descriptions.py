@@ -17,15 +17,13 @@
 import importlib.util
 import math
 from pathlib import Path
-import shlex
-import shutil
 import xml.etree.ElementTree as ET
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchContext
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
-from launch.substitutions import Command
+from launch.actions import DeclareLaunchArgument
 from launch_ros.actions import Node
+from launch_ros.utilities import evaluate_parameters, normalize_parameters
 import pytest
 import xacro
 
@@ -182,7 +180,7 @@ def test_vendored_ur_docs_and_licenses_installed(ur_model: str):
     assert (vendor_ur_dir / 'collision' / 'LICENSE').is_file()
 
 
-def test_display_launch_normalizes_and_validates_robot_config(tmp_path: Path):
+def test_display_launch_validates_robot_config_and_builds_nodes():
     """display.launch.py supports omts/lab_bb_01, builds all 3 nodes, and rejects bad configs."""
     share_dir = Path(get_package_share_directory(PKG_NAME))
     assert (share_dir / 'rviz' / 'display.rviz').is_file()
@@ -193,51 +191,34 @@ def test_display_launch_normalizes_and_validates_robot_config(tmp_path: Path):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    assert hasattr(module, 'resolve_display_xacro_path')
-    assert module.resolve_display_xacro_path('omts').endswith('omts.urdf.xacro')
-    assert module.resolve_display_xacro_path('lab_bb_01').endswith(
-        'lab_bb_01.urdf.xacro'
-    )
-    assert module.resolve_display_xacro_path(' LAB_BB_01 ').endswith(
-        'lab_bb_01.urdf.xacro'
-    )
-    for invalid_config in ('', '   ', 'lab-bb-01', 'unknown_robot', '../omts'):
-        with pytest.raises(ValueError, match='omts'):
-            module.resolve_display_xacro_path(invalid_config)
-
-    # Evaluate DeclareLaunchArgument and OpaqueFunction for default ('omts') and 'lab_bb_01'.
-    for override in (None, 'lab_bb_01'):
+    for override, expected_name in ((None, 'omts'), ('lab_bb_01', 'lab_bb_01')):
         ld = module.generate_launch_description()
-        assert len(ld.entities) == 2
-        declare_arg, opaque_fn = ld.entities
+        assert len(ld.entities) == 4
+        declare_arg = ld.entities[0]
+        nodes = ld.entities[1:]
         assert isinstance(declare_arg, DeclareLaunchArgument)
-        assert isinstance(opaque_fn, OpaqueFunction)
-
-        context = LaunchContext()
-        if override is not None:
-            context.launch_configurations['robot_config'] = override
-        declare_arg.visit(context)
-        nodes = opaque_fn.visit(context)
-
-        assert len(nodes) == 3
         assert all(isinstance(n, Node) for n in nodes)
         assert [n.node_package for n in nodes] == [
             'robot_state_publisher',
             'joint_state_publisher_gui',
             'rviz2',
         ]
-        assert [n.node_executable for n in nodes] == [
-            'robot_state_publisher',
-            'joint_state_publisher_gui',
-            'rviz2',
-        ]
 
-    # Verify shlex.quote handling in Command(['xacro ', ...]) for paths containing spaces.
-    spaced_dir = tmp_path / 'dir with spaces'
-    spaced_dir.mkdir()
-    spaced_xacro = spaced_dir / 'omts.urdf.xacro'
-    shutil.copyfile(module.resolve_display_xacro_path('omts'), spaced_xacro)
-    rendered = Command(['xacro ', shlex.quote(str(spaced_xacro))]).perform(
-        LaunchContext()
-    )
-    assert '<robot name="omts">' in rendered
+        context = LaunchContext()
+        if override is not None:
+            context.launch_configurations['robot_config'] = override
+        declare_arg.visit(context)
+        rsp_params = evaluate_parameters(
+            context,
+            normalize_parameters(
+                [{'robot_description': module.build_robot_description_param()}]
+            ),
+        )
+        assert f'<robot name="{expected_name}">' in rsp_params[0]['robot_description']
+
+    for invalid_config in ('', 'lab-bb-01', 'LAB_BB_01', 'unknown_robot', '../omts'):
+        ld = module.generate_launch_description()
+        context = LaunchContext()
+        context.launch_configurations['robot_config'] = invalid_config
+        with pytest.raises(RuntimeError, match='robot_config'):
+            ld.entities[0].visit(context)

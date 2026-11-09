@@ -33,7 +33,6 @@ pkg_check_modules(LTTNG_UST REQUIRED lttng-ust IMPORTED_TARGET)
 find_package(absl REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(ament_cmake REQUIRED)
-find_package(ament_cmake_python REQUIRED)
 find_package(intrinsic_sdk_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
@@ -61,12 +60,6 @@ intrinsic_sdk_generate_service_manifest(
   DEFAULT_CONFIGURATION ${SERVICE_NAME}_default_config.pbtxt
   PROTOS_TARGET ${SERVICE_NAME}_protos
 )
-# Ensure incremental builds regenerate the descriptor set when the .proto changes.
-add_custom_command(
-  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${SERVICE_NAME}_protos.desc
-  APPEND
-  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${SERVICE_NAME}.proto
-)
 
 # Executables
 add_executable(moveit_planning_node
@@ -76,7 +69,6 @@ add_executable(moveit_planning_node
   src/moveit_scene_synchronizer.cpp
   src/generate_box_grasp_poses.cpp
   src/object_geometry.cpp
-  src/robot_config.cpp
 )
 target_include_directories(moveit_planning_node
   PUBLIC
@@ -137,9 +129,6 @@ target_link_libraries(status_monitor
  PUBLIC
   status_monitor_lib
 )
-
-# Install Python helper package
-ament_python_install_package(${PROJECT_NAME})
 
 # Install
 install(TARGETS
@@ -238,16 +227,6 @@ if(BUILD_TESTING)
     status_monitor_lib
   )
 
-  ament_add_gtest(robot_config_test
-    test/robot_config_test.cpp
-    src/robot_config.cpp
-  )
-  target_include_directories(robot_config_test PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
-  target_link_libraries(robot_config_test
-    intrinsic_sdk_cmake::intrinsic_sdk_cmake
-    ${SERVICE_NAME}_protos
-  )
-
   ament_add_gtest(robot_configs_model_test
     test/robot_configs_model_test.cpp
     src/grasp_planning_pipeline.cpp
@@ -271,7 +250,7 @@ if(BUILD_TESTING)
   )
 
   find_package(ament_cmake_pytest REQUIRED)
-  ament_add_pytest_test(test_robot_config test/test_robot_config.py)
+  ament_add_pytest_test(test_service_launch test/test_service_launch.py)
 
   find_package(launch_testing_ament_cmake REQUIRED)
   add_launch_test(

@@ -6,7 +6,7 @@ Intrinsic Core is the primary supported environment. Licensed users can also dep
 
 ## Repository Structure
 
-* [`configs/`](./configs/): Reference platform service configurations (e.g. [`flowstate_ros_bridge_config.pbtxt`](./configs/flowstate_ros_bridge_config.pbtxt) and [`moveit_planning_service_lab_bb_01_config.pbtxt`](./configs/moveit_planning_service_lab_bb_01_config.pbtxt)).
+* [`configs/`](./configs/): Reference platform service configurations (e.g. [`flowstate_ros_bridge_config.pbtxt`](./configs/flowstate_ros_bridge_config.pbtxt)).
 * [`docs/`](./docs/): Configuration and deployment guides ([`flowstate_integration.md`](./docs/flowstate_integration.md), [`flowstate_ros_bridge_configuration.md`](./docs/flowstate_ros_bridge_configuration.md)).
 * [`moveit_planning_service/`](./moveit_planning_service/): Consolidated ROS 2 planning service exposing motion planning through `motion_planning/get_motion_plan` and grasp planning through the `grasp_planning/plan_grasps` action, with in-process World scene synchronization and static root/base TF broadcasting.
 * [`moveit_planning_interfaces/`](./moveit_planning_interfaces/): ROS 2 action and message definitions for grasp planning (e.g. `PlanGrasps.action`, `GraspCandidate.msg`, and `RankedGrasp.msg`).
@@ -54,8 +54,7 @@ Deploy the unified `moveit_planning_service`:
 # 1. Build & install MoveIt Planning Service bundle
 make install_moveit_planning_service
 
-# 2. Add MoveIt Planning Service to active solution (defaults to robot_config="omts";
-#    pass SERVICE_CONFIG_FLAGS="--config=..." with robot_config="lab_bb_01" for lab_bb_01 — see docs/flowstate_integration.md)
+# 2. Add MoveIt Planning Service to active solution
 make add_moveit_planning_service
 ```
 
@@ -203,8 +202,8 @@ ros2 run moveit_planning_service benchmark_grasp_planning.py \
   * The grasp-planning action accepts multiple candidate objects in one goal, divides `planning_timeout_sec` evenly across the candidates, processes them sequentially, ranks all valid results by `grasp_quality`, applies `max_num_grasps`, and reports progress through `completed_candidates` and `total_candidates`.
 * **Motion Planning Requirements & Geometric Planning Design**:
   * **MoveIt/MTC Dependencies**: The planning node requires `robot_description` (URDF), `robot_description_semantic` (SRDF), `robot_description_kinematics`, and `planning_pipelines` to be loaded as parameters via `service.launch.py` using `MoveItConfigsBuilder` from `<robot_config>_moveit_config` (`omts_moveit_config` or `lab_bb_01_moveit_config`).
-  * **Launch Architecture & Launch Arguments**: `moveit_planning_service/launch/service.launch.py` orchestrates the complete MoveIt ecosystem, launching `robot_state_publisher`, `move_group` (planning scene & execution action server), `ros2_control_node` with controller spawners, `moveit_planning_node`, `status_monitor`, and RViz2. Key launch arguments include:
-    * `robot_config` (default: `""`, resolved via `CLI > /etc/intrinsic/runtime_config.pb > "omts"`): Workcell robot configuration to load (`"omts"` for the UR5e OMTS cell, or `"lab_bb_01"` for the UR3e `lab_bb_01` cell). Normalized and validated at launch via `moveit_planning_service/robot_config.py` and in `moveit_planning_node` via `include/moveit_planning_service/robot_config.hpp` (`LoadRuntimeServiceConfig` + `ResolveRobotConfig`, both failing closed if a present non-empty `runtime_config.pb` cannot be read or decoded, and warning if the ROS parameter differs from `runtime_config.pb`). Note that `robot_config` defaults to `""` so `CLI > runtime_config.pb > "omts"`, whereas the remaining `MoveItPlanningServiceConfig` parameters carry non-empty local launch defaults that `runtime_config.pb` overrides when present.
+  * **Launch Architecture & Launch Arguments**: `moveit_planning_service/launch/service.launch.py` dispatches to per-workcell launch files (`omts.launch.py` and `lab_bb_01.launch.py`, backed by `planning_service_common.py`), orchestrating `robot_state_publisher`, `move_group` (planning scene & execution action server), `ros2_control_node` with controller spawners, `moveit_planning_node`, `status_monitor`, and RViz2. Key launch arguments include:
+    * `robot_config` (default: `"omts"`, choices: `["omts", "lab_bb_01"]`): Selects the per-workcell launch file (`omts.launch.py` for the UR5e OMTS cell, or `lab_bb_01.launch.py` for the UR3e `lab_bb_01` cell). Each per-workcell launch file can also be invoked directly (`ros2 launch moveit_planning_service omts.launch.py` / `lab_bb_01.launch.py`).
     * `headless` (default: `true`): Controls UI visualization. When `true`, disables RViz; setting `headless:=false` enables RViz for local visual debugging.
     * `start_service_status_monitor` (default: `true`): Controls whether the dedicated `status_monitor` node is launched to report operational `ServiceState` to the platform. Set to `false` for offline or standalone testing where reporting to the platform is not desired.
     * `use_mock_hardware` (default: `false`): When `true`, starts `ros2_control_node` with controller spawners for offline testing without platform connection.

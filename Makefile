@@ -16,7 +16,6 @@
 export
 
 CACHE_FLAGS ?=
-SERVICE_CONFIG_FLAGS ?=
 
 .PHONY: clean check-intrinsic-env format format-check \
 	moveit_planning_service moveit_planning_service_proto_desc moveit_planning_service.bundle.tar \
@@ -133,7 +132,6 @@ add_moveit_planning_service: check-intrinsic-env
 	./bin/inctl service add \
 		--org ${INTRINSIC_ORGANIZATION} \
 		--cluster ${INTRINSIC_CLUSTER} \
-		$(SERVICE_CONFIG_FLAGS) \
 		ai.intrinsic.moveit_planning_service --name=moveit_planning_service
 
 delete_moveit_planning_service: check-intrinsic-env

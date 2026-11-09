@@ -168,9 +168,6 @@ class GraspPlanningIntegrationTestBase(unittest.TestCase):
         get_scene_client = self.node.create_client(
             GetPlanningScene, '/get_planning_scene'
         )
-        get_params_client = self.node.create_client(
-            GetParameters, '/moveit_planning_node/get_parameters'
-        )
         rsp_params_client = self.node.create_client(
             GetParameters, '/robot_state_publisher/get_parameters'
         )
@@ -188,10 +185,6 @@ class GraspPlanningIntegrationTestBase(unittest.TestCase):
             'Timed out waiting for /get_planning_scene service',
         )
         self.assertTrue(
-            self.wait_for_service(get_params_client, timeout_sec=45.0),
-            'Timed out waiting for /moveit_planning_node/get_parameters',
-        )
-        self.assertTrue(
             self.wait_for_service(rsp_params_client, timeout_sec=45.0),
             'Timed out waiting for /robot_state_publisher/get_parameters',
         )
@@ -200,21 +193,7 @@ class GraspPlanningIntegrationTestBase(unittest.TestCase):
             'Timed out waiting for /grasp_planning/plan_grasps action server',
         )
 
-        # Verify active robot_config and URDF loaded across the stack
-        params_req = GetParameters.Request(names=['robot_config'])
-        params_resp = self.call_service_sync(
-            get_params_client, params_req, timeout_sec=15.0
-        )
-        self.assertIsNotNone(
-            params_resp,
-            'No response from /moveit_planning_node/get_parameters',
-        )
-        self.assertEqual(len(params_resp.values), 1)
-        self.assertEqual(
-            params_resp.values[0].string_value,
-            self.EXPECTED_ROBOT_CONFIG,
-        )
-
+        # Verify active URDF loaded across the stack
         rsp_resp = self.call_service_sync(
             rsp_params_client,
             GetParameters.Request(names=['robot_description']),

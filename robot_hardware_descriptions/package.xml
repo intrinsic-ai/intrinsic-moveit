@@ -31,7 +31,6 @@ limitations under the License.
   <depend>robot_state_publisher</depend>
   <depend>rviz2</depend>
 
-  <exec_depend>ament_index_python</exec_depend>
   <exec_depend>joint_state_publisher_gui</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>

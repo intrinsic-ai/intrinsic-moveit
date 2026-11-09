@@ -6,9 +6,11 @@ Intrinsic Core is the primary supported environment. Licensed users can also dep
 
 ## Launch Arguments Reference (`service.launch.py`)
 
+`service.launch.py` dispatches to the per-workcell launch files [`omts.launch.py`](./launch/omts.launch.py) and [`lab_bb_01.launch.py`](./launch/lab_bb_01.launch.py) (which can also be launched directly).
+
 | Argument | Default | Description |
 | :--- | :--- | :--- |
-| `robot_config` | `""` (`omts`) | Workcell robot configuration (`omts` for UR5e OMTS, `lab_bb_01` for UR3e `lab_bb_01`). Precedence: CLI argument > `MoveItPlanningServiceConfig.robot_config` in `/etc/intrinsic/runtime_config.pb` > `"omts"` (fails closed if a present, non-empty `runtime_config.pb` cannot be read or decoded). |
+| `robot_config` | `omts` | Workcell hardware configuration launch file to load (`omts` for UR5e OMTS, `lab_bb_01` for UR3e `lab_bb_01`). |
 | `headless` | `true` | When `true`, omits RViz visualization. When `false`, launches RViz. |
 | `start_service_status_monitor` | `true` | Controls whether the `status_monitor` node runs to report `ServiceState` to the platform. |
 | `use_mock_hardware` | `false` | When `true`, spawns mock `ros2_control` hardware, virtual joint static TF (`world -> base_link`), and controllers for standalone execution. |
@@ -22,12 +24,6 @@ Intrinsic Core is the primary supported environment. Licensed users can also dep
 | `add_collision_retry_interval_sec` | `2.0` | Interval in seconds between collision scene population checks. |
 | `world_sync_interval_sec` | `2.0` | Interval in seconds for periodic background synchronization of World scene objects. |
 | `rviz_config` | `...` | Path to custom RViz configuration file. |
-
-> [!NOTE]
-> **Parameter Precedence (`robot_config` vs. runtime service parameters)**:
-> * **`robot_config` (`CLI > runtime_config.pb > "omts"`)**: Defaults to `""` in `service.launch.py` so an explicit `robot_config:=...` launch argument overrides `/etc/intrinsic/runtime_config.pb` (logging a warning if the two differ) while allowing container deployments with an unset launch argument to read `MoveItPlanningServiceConfig.robot_config`.
-> * **Other `MoveItPlanningServiceConfig` parameters (`runtime_config.pb > launch default`)**: Connection and scene-sync launch arguments carry non-empty local development defaults (`localhost:17080`, `tcp/localhost:7447`, `expect_collision_objects:=true`, etc.) so `ros2 launch` works locally when `/etc/intrinsic/runtime_config.pb` is absent. When a valid `MoveItPlanningServiceConfig` is unpacked from `/etc/intrinsic/runtime_config.pb` in a sideloaded container, its values override those local launch defaults.
-> * **Fail-closed runtime config loading**: If `/etc/intrinsic/runtime_config.pb` exists and is non-empty, both `service.launch.py` and `moveit_planning_node` fail closed on file I/O or protobuf decode errors (unless `robot_config:=...` was explicitly provided) rather than falling back to `"omts"`.
 
 ---
 
@@ -150,7 +146,7 @@ ros2 run moveit_planning_service benchmark_grasp_planning.py \
 Verify that MoveIt and the service endpoints are ready:
 
 ```text
-[INFO] [moveit_planning_node]: MoveIt Planning Service started (robot_config: 'omts').
+[INFO] [moveit_planning_node]: MoveIt Planning Service started.
 [INFO] [moveit_planning_node]: Ready to receive requests at:
 [INFO] [moveit_planning_node]:  - motion_planning/get_motion_plan
 [INFO] [moveit_planning_node]:  - grasp_planning/plan_grasps (action)

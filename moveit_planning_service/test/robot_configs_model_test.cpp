@@ -37,7 +37,6 @@
 #include <vector>
 
 #include "moveit_planning_service/grasp_planning_pipeline.hpp"
-#include "moveit_planning_service/robot_config.hpp"
 
 namespace {
 
@@ -52,15 +51,6 @@ const std::array<RobotConfigTestCase, 2> kMultiCellTestCases = {{
     {"omts", 0.14, 0.425, 3.1415927},
     {"lab_bb_01", 0.128, 0.24355, 6.2831853},
 }};
-
-TEST(RobotConfigsAllowlistParityTest, MatchesParameterizedTestConfigs) {
-  ASSERT_EQ(moveit_planning_service::kSupportedRobotConfigs.size(),
-            kMultiCellTestCases.size());
-  for (std::size_t i = 0; i < kMultiCellTestCases.size(); ++i) {
-    EXPECT_EQ(moveit_planning_service::kSupportedRobotConfigs[i],
-              kMultiCellTestCases[i].config_name);
-  }
-}
 
 std::string RunCommandCaptureStdout(const std::string& cmd, int* exit_code) {
   std::array<char, 4096> buffer{};

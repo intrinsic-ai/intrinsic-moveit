@@ -11,3 +11,23 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+"""Launch MoveIt planning service for the OMTS (UR5e) workcell."""
+
+from pathlib import Path
+import sys
+
+_LAUNCH_DIR = str(Path(__file__).resolve().parent)
+if _LAUNCH_DIR not in sys.path:
+    sys.path.insert(0, _LAUNCH_DIR)
+
+from planning_service_common import (  # noqa: E402
+    generate_robot_service_launch_description,
+)
+
+
+def generate_launch_description():
+    return generate_robot_service_launch_description(
+        robot_name="omts",
+        moveit_config_package="omts_moveit_config",
+    )
