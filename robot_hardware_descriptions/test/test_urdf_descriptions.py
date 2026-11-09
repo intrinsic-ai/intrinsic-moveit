@@ -31,7 +31,8 @@ import xacro
 
 
 PKG_NAME = 'robot_hardware_descriptions'
-PACKAGE_URI_PREFIX = f'package://{PKG_NAME}/'
+VENDOR_PKG_NAME = 'robot_meshes_vendor'
+ALLOWED_MESH_PACKAGES = {PKG_NAME, VENDOR_PKG_NAME}
 
 REQUIRED_LINKS = {
     'base_link',
@@ -83,7 +84,6 @@ def _parse_floats(attr_value: str) -> list[float]:
 @pytest.mark.parametrize('config_name', ['omts', 'lab_bb_01'])
 def test_xacro_renders_expected_links_joints_and_meshes(config_name: str):
     """Both cell xacros render cleanly with valid mesh URIs and shared semantic links."""
-    share_dir = Path(get_package_share_directory(PKG_NAME))
     xml_str, root = _render_urdf(config_name)
 
     assert root.attrib.get('name') == config_name
@@ -98,9 +98,14 @@ def test_xacro_renders_expected_links_joints_and_meshes(config_name: str):
     assert len(meshes) > 0
     for mesh in meshes:
         uri = mesh.attrib['filename']
-        assert uri.startswith(PACKAGE_URI_PREFIX), f'Unexpected mesh URI: {uri}'
-        rel_path = uri[len(PACKAGE_URI_PREFIX):]
-        mesh_file = share_dir / rel_path
+        assert uri.startswith('package://'), f'Unexpected mesh URI: {uri}'
+        pkg_and_rel = uri[len('package://'):]
+        pkg_name, sep, rel_path = pkg_and_rel.partition('/')
+        assert sep == '/' and pkg_name in ALLOWED_MESH_PACKAGES, (
+            f'Unexpected mesh package in URI: {uri}'
+        )
+        pkg_share = Path(get_package_share_directory(pkg_name))
+        mesh_file = pkg_share / rel_path
         assert mesh_file.is_file(), f'Mesh file does not exist: {mesh_file}'
         assert mesh_file.stat().st_size > 0, f'Empty mesh file: {mesh_file}'
 
@@ -168,12 +173,13 @@ def test_lab_bb_01_matches_intrinsic_omts_ur3e_and_wrist_3_bounds():
 
 @pytest.mark.parametrize('ur_model', ['ur5e', 'ur3e'])
 def test_vendored_ur_docs_and_licenses_installed(ur_model: str):
-    """Vendored UR directories include README and upstream BSD-3-Clause LICENSE files."""
+    """UR macro directories include README, and robot_meshes_vendor installs BSD licenses."""
     share_dir = Path(get_package_share_directory(PKG_NAME))
-    ur_dir = share_dir / 'urdf' / ur_model
-    assert (ur_dir / 'README.md').is_file()
-    assert (ur_dir / 'visual' / 'LICENSE').is_file()
-    assert (ur_dir / 'collision' / 'LICENSE').is_file()
+    vendor_share_dir = Path(get_package_share_directory(VENDOR_PKG_NAME))
+    assert (share_dir / 'urdf' / ur_model / 'README.md').is_file()
+    vendor_ur_dir = vendor_share_dir / 'meshes' / ur_model
+    assert (vendor_ur_dir / 'visual' / 'LICENSE').is_file()
+    assert (vendor_ur_dir / 'collision' / 'LICENSE').is_file()
 
 
 def test_display_launch_normalizes_and_validates_robot_config(tmp_path: Path):
@@ -192,18 +198,15 @@ def test_display_launch_normalizes_and_validates_robot_config(tmp_path: Path):
     assert module.resolve_display_xacro_path('lab_bb_01').endswith(
         'lab_bb_01.urdf.xacro'
     )
-    assert module.resolve_display_xacro_path('lab-bb-01').endswith(
+    assert module.resolve_display_xacro_path(' LAB_BB_01 ').endswith(
         'lab_bb_01.urdf.xacro'
     )
-    assert module.resolve_display_xacro_path(' LAB-BB-01 ').endswith(
-        'lab_bb_01.urdf.xacro'
-    )
-    for invalid_config in ('', '   ', 'unknown_robot', '../omts'):
+    for invalid_config in ('', '   ', 'lab-bb-01', 'unknown_robot', '../omts'):
         with pytest.raises(ValueError, match='omts'):
             module.resolve_display_xacro_path(invalid_config)
 
-    # Evaluate DeclareLaunchArgument and OpaqueFunction for default ('omts') and 'lab-bb-01'.
-    for override in (None, 'lab-bb-01'):
+    # Evaluate DeclareLaunchArgument and OpaqueFunction for default ('omts') and 'lab_bb_01'.
+    for override in (None, 'lab_bb_01'):
         ld = module.generate_launch_description()
         assert len(ld.entities) == 2
         declare_arg, opaque_fn = ld.entities

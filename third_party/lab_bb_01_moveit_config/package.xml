@@ -39,7 +39,7 @@ POSSIBILITY OF SUCH DAMAGE.
   <name>lab_bb_01_moveit_config</name>
   <version>0.3.0</version>
   <description>
-     MoveIt configuration and launch files for the lab-bb-01 (UR3e) workcell configuration
+     MoveIt configuration and launch files for the lab_bb_01 (UR3e) workcell configuration
   </description>
   <maintainer email="ivan.martinez@ekumenlabs.com">Ivan David Martinez Baron </maintainer>
 

@@ -12,15 +12,13 @@ This directory contains the vendored UR5e robot hardware description, derived fr
 ```text
 urdf/ur5e/
 ├── README.md                                    # This documentation
-├── ur5e_macro.xacro                             # Main UR5e robot Xacro macro for ROS 2 / MoveIt
-├── visual/                                      # Visual DAE meshes + upstream BSD-3-Clause LICENSE
-└── collision/                                   # Collision STL meshes + BSD-3-Clause LICENSE
+└── ur5e_macro.xacro                             # Main UR5e robot Xacro macro for ROS 2 / MoveIt
 ```
 
 ### Licensing & Provenance
 
 - `ur5e_macro.xacro` is licensed under Apache-2.0 (`Copyright 2026 Intrinsic Innovation LLC`).
-- Visual and collision meshes under `visual/` and `collision/` are retained with their upstream Universal Robots **BSD-3-Clause** `LICENSE` files (`visual/LICENSE` and `collision/LICENSE`), as vendored in `intrinsic-core/third_party/universal_robots/ur5e/`.
+- Visual and collision meshes (`meshes/ur5e/visual/` and `meshes/ur5e/collision/`) are packaged separately in [`third_party/robot_meshes_vendor`](../../../third_party/robot_meshes_vendor/README.md) with their upstream Universal Robots **BSD-3-Clause** `LICENSE` files, as vendored in `intrinsic-core/third_party/universal_robots/ur5e/`.
 
 ---
 

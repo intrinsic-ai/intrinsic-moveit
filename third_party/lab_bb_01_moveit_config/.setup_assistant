@@ -5,9 +5,9 @@ moveit_setup_assistant_config:
   srdf:
     relative_path: config/lab_bb_01.srdf
   package_settings:
-    author_name: "Ivan David Martinez Baron "
-    author_email: ivan.martinez@ekumenlabs.com
-    generated_timestamp: 1784859031
+    author_name: "Aaron Chong"
+    author_email: aaronchong@google.com
+    generated_timestamp: 1794195000
   control_xacro:
     command:
       - position

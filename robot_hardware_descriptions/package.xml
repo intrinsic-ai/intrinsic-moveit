@@ -20,12 +20,13 @@ limitations under the License.
 <package format="3">
   <name>robot_hardware_descriptions</name>
   <version>0.0.1</version>
-  <description>Robot hardware descriptions (URDF/Xacro macros and meshes) for OMTS (UR5e) and lab-bb-01 (UR3e) workcell setups.</description>
+  <description>Robot hardware descriptions (URDF/Xacro macros and meshes) for OMTS (UR5e) and lab_bb_01 (UR3e) workcell setups.</description>
   <maintainer email="ivandavid.martinez10@gmail.com">idmb</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <depend>robot_meshes_vendor</depend>
   <depend>xacro</depend>
   <depend>robot_state_publisher</depend>
   <depend>rviz2</depend>

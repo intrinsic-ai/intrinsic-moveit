@@ -27,11 +27,12 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 PKG_NAME = 'robot_hardware_descriptions'
 SUPPORTED_ROBOT_CONFIGS = ('omts', 'lab_bb_01')
+_ASCII_WHITESPACE = ' \t\r\n\f\v'
 
 
 def resolve_display_xacro_path(robot_config: str) -> str:
     """Resolve and validate the top-level Xacro path for a robot_config name."""
-    normalized = robot_config.strip().lower().replace('-', '_')
+    normalized = robot_config.strip(_ASCII_WHITESPACE).lower()
     if normalized not in SUPPORTED_ROBOT_CONFIGS:
         supported = ', '.join(SUPPORTED_ROBOT_CONFIGS)
         raise ValueError(
@@ -83,10 +84,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'robot_config',
             default_value='omts',
-            description=(
-                "Robot configuration to visualize ('omts' or 'lab_bb_01'; "
-                "'lab-bb-01' is also accepted)."
-            ),
+            description="Robot configuration to visualize ('omts' or 'lab_bb_01').",
         ),
         OpaqueFunction(function=_launch_setup),
     ])
