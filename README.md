@@ -70,13 +70,8 @@ colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release --symlink-install --package
 > [!NOTE]
 > **Bridge Requirement**: This integration requires a running `flowstate_ros_bridge` configured for the workcell (to stream `/tf` and `/joint_states`). The bridge should already be deployed in the cluster — in which case its configuration must first be updated, see [`docs/flowstate_ros_bridge_configuration.md`](./docs/flowstate_ros_bridge_configuration.md).
 
-If connecting to an active Intrinsic Core cluster, port-forward the Zenoh router port (`7447`):
-
 ```bash
-# Terminal 1: Port forward zenoh port to localhost
-sudo k3s kubectl port-forward -n app-intrinsic-base service/zenoh-router 7447:7447
-
-# Terminal 2: Zenoh router tunnel, these are needed for all ROS interactions with Intrinsic Core
+# Zenoh router tunnel, these are needed for all ROS interactions with Intrinsic Core
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 export ROS_DOMAIN_ID=0
 export ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/127.0.0.1:7447"]'
