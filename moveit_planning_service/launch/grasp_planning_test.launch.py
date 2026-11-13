@@ -12,18 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.actions import OpaqueFunction
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from moveit_configs_utils import MoveItConfigsBuilder
 from moveit_configs_utils.launches import generate_demo_launch
 
+SUPPORTED_ROBOT_CONFIGS = ("omts", "lab_bb_01")
 
-def generate_launch_description():
+
+def _launch_setup(context):
+    robot_config = LaunchConfiguration("robot_config").perform(context)
     moveit_config = MoveItConfigsBuilder(
-        "robot_hardware", package_name="robot_hardware_moveit_config"
+        robot_config, package_name=f"{robot_config}_moveit_config"
     ).to_moveit_configs()
 
-    launch_description = generate_demo_launch(moveit_config)
-
+    demo_launch = generate_demo_launch(moveit_config)
     planning_service = Node(
         package="moveit_planning_service",
         executable="moveit_planning_node",
@@ -31,7 +37,18 @@ def generate_launch_description():
         parameters=[moveit_config.to_dict()],
         output="both",
     )
+    return [*demo_launch.entities, planning_service]
 
-    launch_description.add_action(planning_service)
 
-    return launch_description
+def generate_launch_description():
+    return LaunchDescription(
+        [
+            DeclareLaunchArgument(
+                "robot_config",
+                default_value="omts",
+                choices=list(SUPPORTED_ROBOT_CONFIGS),
+                description="Workcell robot configuration to load.",
+            ),
+            OpaqueFunction(function=_launch_setup),
+        ]
+    )

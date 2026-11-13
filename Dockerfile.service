@@ -108,8 +108,10 @@ WORKDIR /opt/ros/overlay
 RUN mkdir -p /opt/ros/overlay/src
 
 # Add only local workspace packages to this layer so changes only rebuild the overlay
-ADD robot_hardware_description /opt/ros/overlay/src/robot_hardware_description
-ADD third_party/robot_hardware_moveit_config /opt/ros/overlay/src/third_party/robot_hardware_moveit_config
+ADD third_party/robot_meshes_vendor /opt/ros/overlay/src/third_party/robot_meshes_vendor
+ADD robot_hardware_descriptions /opt/ros/overlay/src/robot_hardware_descriptions
+ADD third_party/omts_moveit_config /opt/ros/overlay/src/third_party/omts_moveit_config
+ADD third_party/lab_bb_01_moveit_config /opt/ros/overlay/src/third_party/lab_bb_01_moveit_config
 ADD moveit_planning_service /opt/ros/overlay/src/moveit_planning_service
 ADD moveit_planning_interfaces /opt/ros/overlay/src/moveit_planning_interfaces
 
@@ -119,7 +121,7 @@ RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
     && cd /opt/ros/overlay \
     && apt-get update \
     && (rosdep update 2>/dev/null || true) \
-    && rosdep install --from-paths `colcon list --packages-up-to ${TARGET_PACKAGE} -p` --ignore-src -r -y \
+    && rosdep install --from-paths `colcon list --packages-up-to ${TARGET_PACKAGE} -p` --ignore-src -r -y --skip-keys="joint_state_publisher_gui" \
     && colcon build \
         --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
         --merge-install \

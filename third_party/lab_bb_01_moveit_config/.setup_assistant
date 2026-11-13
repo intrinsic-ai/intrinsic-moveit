@@ -1,0 +1,19 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: robot_hardware_descriptions
+    relative_path: urdf/lab_bb_01.urdf.xacro
+  srdf:
+    relative_path: config/lab_bb_01.srdf
+  package_settings:
+    author_name: "Aaron Chong"
+    author_email: aaronchong@google.com
+    generated_timestamp: 1794195000
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity
+  modified_urdf:
+    xacros:
+      - control_xacro

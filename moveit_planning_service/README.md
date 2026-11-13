@@ -6,8 +6,11 @@ Intrinsic Core is the primary supported environment. Licensed users can also dep
 
 ## Launch Arguments Reference (`service.launch.py`)
 
+`service.launch.py` dispatches to the per-workcell launch files [`omts.launch.py`](./launch/omts.launch.py) and [`lab_bb_01.launch.py`](./launch/lab_bb_01.launch.py) (which can also be launched directly).
+
 | Argument | Default | Description |
 | :--- | :--- | :--- |
+| `robot_config` | `omts` | Workcell hardware configuration launch file to load (`omts` for UR5e OMTS, `lab_bb_01` for UR3e `lab_bb_01`). |
 | `headless` | `true` | When `true`, omits RViz visualization. When `false`, launches RViz. |
 | `start_service_status_monitor` | `true` | Controls whether the `status_monitor` node runs to report `ServiceState` to the platform. |
 | `use_mock_hardware` | `false` | When `true`, spawns mock `ros2_control` hardware, virtual joint static TF (`world -> base_link`), and controllers for standalone execution. |
@@ -26,7 +29,7 @@ Intrinsic Core is the primary supported environment. Licensed users can also dep
 
 ## Integration Testing
 
-An automated launch integration test (`test_grasp_planning_integration.test.py`) verifies the grasp planning pipeline with mock hardware: starting the planning service, adding multiple collision objects to the planning scene, verifying their registration, and sending a multi-candidate goal to the `/grasp_planning/plan_grasps` action.
+Automated launch integration tests (`test_grasp_planning_integration.test.py` for `omts` and `test_grasp_planning_integration_lab_bb_01.test.py` for `lab_bb_01`) verify the grasp planning pipeline across both workcell configurations with mock hardware: starting the planning service, confirming the active URDF/SRDF model, adding multiple collision objects to the planning scene, and sending a multi-candidate goal to the `/grasp_planning/plan_grasps` action.
 
 Run the integration test with colcon:
 
@@ -117,6 +120,7 @@ Start the planning service in standalone mode:
 ```bash
 source install/setup.bash
 ros2 launch moveit_planning_service service.launch.py \
+  robot_config:=omts \
   headless:=true \
   use_mock_hardware:=true \
   expect_collision_objects:=false \
@@ -146,6 +150,7 @@ Verify that MoveIt and the service endpoints are ready:
 [INFO] [moveit_planning_node]: Ready to receive requests at:
 [INFO] [moveit_planning_node]:  - motion_planning/get_motion_plan
 [INFO] [moveit_planning_node]:  - grasp_planning/plan_grasps (action)
+[INFO] [moveit_planning_node]:  - ~/sync_collision_objects
 ```
 
 ### 2. Planning Node Blocking Waiting for Collision Objects
