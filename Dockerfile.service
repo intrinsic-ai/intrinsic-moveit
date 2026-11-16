@@ -41,7 +41,7 @@ ARG SERVICE_PACKAGE=moveit_planning_service
 # 1. Add repo files before any source code to maximize caching
 ADD ${ROS_DISTRO}.repos /opt/ros/underlay/${ROS_DISTRO}.repos
 
-# 2. Fetch upstream source dependencies defined in .repos (e.g. sdk-ros, moveit2, ompl, mtc)
+# 2. Fetch upstream source dependencies defined in .repos (e.g. sdk-ros)
 RUN mkdir -p /opt/ros/underlay/src \
     && cd /opt/ros/underlay \
     && vcs import src < /opt/ros/underlay/${ROS_DISTRO}.repos --recursive
@@ -73,13 +73,6 @@ RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
         --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
         --merge-install \
         --packages-skip \
-            moveit_task_constructor_demo \
-            moveit_task_constructor_visualization \
-            moveit_task_constructor_capabilities \
-            moveit_setup_simulation \
-            moveit_ros_tests \
-            moveit_servo \
-            moveit_hybrid_planning \
             flowstate_ros_gz_bridge \
             ros_gz_bridge_vendor \
             generic_action_skill \
