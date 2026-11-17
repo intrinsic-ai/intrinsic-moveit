@@ -93,10 +93,12 @@ docker_setup:
 moveit_planning_service: docker_setup check-intrinsic-env
 	docker buildx build $(CACHE_FLAGS) -t moveit_planning_service:latest \
 		--builder="container-builder" \
+		--target runtime \
 		--output="\
 			type=docker,\
 			dest=./images/moveit_planning_service.tar,\
 			compression=zstd,\
+			force-compression=true,\
 			push=false,\
 			name=moveit_planning_service:latest" \
 		--build-arg ROS_PACKAGE_NAME_ARG=moveit_planning_service \
@@ -105,12 +107,14 @@ moveit_planning_service: docker_setup check-intrinsic-env
 		.
 
 moveit_planning_service_proto_desc: moveit_planning_service
-	docker load -i ./images/moveit_planning_service.tar
-	docker create --name temp_container "moveit_planning_service:latest"
-	docker cp "temp_container:/opt/service_workspace/install/share/moveit_planning_service/moveit_planning_service_protos.desc" "./images/moveit_planning_service_protos.desc"
-	docker cp "temp_container:/opt/intrinsic/intrinsic_sdk_cmake/install/share/intrinsic_sdk_cmake/intrinsic_proto.desc" "./images/intrinsic_proto.desc"
-	docker rm -f "temp_container"
-	docker rmi "moveit_planning_service:latest"
+	docker buildx build \
+		--builder="container-builder" \
+		--target descriptors \
+		--output="type=local,dest=./images" \
+		--build-arg ROS_PACKAGE_NAME_ARG=moveit_planning_service \
+		--build-arg ROS_DISTRO=${ROS_DISTRO} \
+		--file ./Dockerfile.service \
+		.
 
 moveit_planning_service.bundle.tar: moveit_planning_service_proto_desc download_inbuild_and_inctl
 	./bin/inbuild service bundle \
@@ -154,7 +158,8 @@ uninstall_moveit_planning_service: check-intrinsic-env
 moveit_plan_motion_skill: docker_setup check-intrinsic-env
 	docker buildx build $(CACHE_FLAGS) -t moveit_plan_motion_skill:latest \
 		--builder="container-builder" \
-		--output="type=docker,dest=./images/moveit_plan_motion_skill.tar,compression=zstd,push=false,name=moveit_plan_motion_skill:latest" \
+		--target runtime \
+		--output="type=docker,dest=./images/moveit_plan_motion_skill.tar,compression=zstd,force-compression=true,push=false,name=moveit_plan_motion_skill:latest" \
 		--build-arg ROS_DISTRO=${ROS_DISTRO} \
 		--build-arg SKILL_PACKAGE=moveit_plan_motion_skill \
 		--build-arg SKILL_EXECUTABLE_NAME=moveit_plan_motion_skill_main \
@@ -163,16 +168,14 @@ moveit_plan_motion_skill: docker_setup check-intrinsic-env
 		.
 
 moveit_plan_motion_skill_proto_desc: moveit_plan_motion_skill
-	docker load -i ./images/moveit_plan_motion_skill.tar
-	docker create --name temp_container_skills "moveit_plan_motion_skill:latest"
-	docker cp "temp_container_skills:/opt/intrinsic/intrinsic_sdk_cmake/install/share/intrinsic_sdk_cmake/intrinsic_proto.desc" "./images/intrinsic_proto.desc"
-	docker rm -f "temp_container_skills"
-	docker run --rm -v $(CURDIR):/ws -w /ws "moveit_plan_motion_skill:latest" \
-		protoc -I./moveit_plan_motion_skill/src/moveit_plan_motion_skill \
-		--descriptor_set_in=./images/intrinsic_proto.desc \
-		--descriptor_set_out=./images/moveit_plan_motion_skill_protos.desc \
-		./moveit_plan_motion_skill/src/moveit_plan_motion_skill/moveit_plan_motion_skill.proto
-	docker rmi "moveit_plan_motion_skill:latest"
+	docker buildx build \
+		--builder="container-builder" \
+		--target descriptors \
+		--output="type=local,dest=./images" \
+		--build-arg ROS_DISTRO=${ROS_DISTRO} \
+		--build-arg SKILL_PACKAGE=moveit_plan_motion_skill \
+		--file ./Dockerfile.skill \
+		.
 
 moveit_plan_motion_skill.bundle.tar: moveit_plan_motion_skill_proto_desc download_inbuild_and_inctl
 	./bin/inbuild skill manifest \
@@ -190,7 +193,8 @@ moveit_plan_motion_skill.bundle.tar: moveit_plan_motion_skill_proto_desc downloa
 moveit_plan_grasp_skill: docker_setup check-intrinsic-env
 	docker buildx build $(CACHE_FLAGS) -t moveit_plan_grasp_skill:latest \
 		--builder="container-builder" \
-		--output="type=docker,dest=./images/moveit_plan_grasp_skill.tar,compression=zstd,push=false,name=moveit_plan_grasp_skill:latest" \
+		--target runtime \
+		--output="type=docker,dest=./images/moveit_plan_grasp_skill.tar,compression=zstd,force-compression=true,push=false,name=moveit_plan_grasp_skill:latest" \
 		--build-arg ROS_DISTRO=${ROS_DISTRO} \
 		--build-arg SKILL_PACKAGE=moveit_plan_grasp_skill \
 		--build-arg SKILL_EXECUTABLE_NAME=moveit_plan_grasp_skill_main \
@@ -199,16 +203,14 @@ moveit_plan_grasp_skill: docker_setup check-intrinsic-env
 		.
 
 moveit_plan_grasp_skill_proto_desc: moveit_plan_grasp_skill
-	docker load -i ./images/moveit_plan_grasp_skill.tar
-	docker create --name temp_container_skills "moveit_plan_grasp_skill:latest"
-	docker cp "temp_container_skills:/opt/intrinsic/intrinsic_sdk_cmake/install/share/intrinsic_sdk_cmake/intrinsic_proto.desc" "./images/intrinsic_proto.desc"
-	docker rm -f "temp_container_skills"
-	docker run --rm -v $(CURDIR):/ws -w /ws "moveit_plan_grasp_skill:latest" \
-		protoc -I./moveit_plan_grasp_skill/src/moveit_plan_grasp_skill \
-		--descriptor_set_in=./images/intrinsic_proto.desc \
-		--descriptor_set_out=./images/moveit_plan_grasp_skill_protos.desc \
-		./moveit_plan_grasp_skill/src/moveit_plan_grasp_skill/moveit_plan_grasp_skill.proto
-	docker rmi "moveit_plan_grasp_skill:latest"
+	docker buildx build \
+		--builder="container-builder" \
+		--target descriptors \
+		--output="type=local,dest=./images" \
+		--build-arg ROS_DISTRO=${ROS_DISTRO} \
+		--build-arg SKILL_PACKAGE=moveit_plan_grasp_skill \
+		--file ./Dockerfile.skill \
+		.
 
 moveit_plan_grasp_skill.bundle.tar: moveit_plan_grasp_skill_proto_desc download_inbuild_and_inctl
 	./bin/inbuild skill manifest \
