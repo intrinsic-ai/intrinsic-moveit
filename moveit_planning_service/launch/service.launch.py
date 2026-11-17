@@ -32,16 +32,18 @@ if _LAUNCH_DIR not in sys.path:
 from planning_service_common import (  # noqa: E402
     declare_planning_service_arguments,
 )
+from runtime_config import resolve_default_robot_config  # noqa: E402
 
 SUPPORTED_ROBOT_CONFIGS = ("omts", "lab_bb_01")
 
 
 def generate_launch_description():
+    default_robot_config = resolve_default_robot_config(SUPPORTED_ROBOT_CONFIGS)
     return LaunchDescription(
         [
             DeclareLaunchArgument(
                 "robot_config",
-                default_value="omts",
+                default_value=default_robot_config,
                 choices=list(SUPPORTED_ROBOT_CONFIGS),
                 description="Workcell robot configuration to load.",
             ),

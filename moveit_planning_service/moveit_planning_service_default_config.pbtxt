@@ -41,4 +41,5 @@
   expect_collision_objects: true
   use_mock_hardware: false
   world_sync_interval_sec: 2.0
+  robot_config: "omts"
 }
