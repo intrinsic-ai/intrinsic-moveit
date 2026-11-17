@@ -10,7 +10,7 @@ Intrinsic Core is the primary supported environment. Licensed users can also dep
 
 | Argument | Default | Description |
 | :--- | :--- | :--- |
-| `robot_config` | `omts` | Workcell hardware configuration launch file to load (`omts` for UR5e OMTS, `lab_bb_01` for UR3e `lab_bb_01`). |
+| `robot_config` | `MoveItPlanningServiceConfig.robot_config` (or `omts`) | Workcell hardware configuration launch file to load (`omts` for UR5e OMTS, `lab_bb_01` for UR3e `lab_bb_01`). Defaults to `robot_config` from `/etc/intrinsic/runtime_config.pb` when deployed in a cluster, or `omts` locally; explicit `robot_config:=...` overrides both. |
 | `headless` | `true` | When `true`, omits RViz visualization. When `false`, launches RViz. |
 | `start_service_status_monitor` | `true` | Controls whether the `status_monitor` node runs to report `ServiceState` to the platform. |
 | `use_mock_hardware` | `false` | When `true`, spawns mock `ros2_control` hardware, virtual joint static TF (`world -> base_link`), and controllers for standalone execution. |
