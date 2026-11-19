@@ -40,9 +40,6 @@ make install_moveit_planning_service
 make add_moveit_planning_service
 ```
 
-> [!NOTE]
-> **Upstream Bridge Requirement**: The active cluster solution requires a running `flowstate_ros_bridge` service configured for the workcell. For instructions on applying the configuration for Flowstate (via the Flowstate platform UI) or Intrinsic Core (via `inctl` or Bazel), see [`docs/flowstate_ros_bridge_configuration.md`](./flowstate_ros_bridge_configuration.md).
-
 Clean up when done:
 
 ```bash

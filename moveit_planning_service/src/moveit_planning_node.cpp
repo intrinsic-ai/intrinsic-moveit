@@ -413,6 +413,10 @@ int main(int argc, char** argv) {
         rclcpp::get_logger("moveit_planning_service"),
         "Failed to unpack MoveItPlanningServiceConfig from runtime_config.pb; "
         "using default parameters or CLI arguments.");
+  } else if (config.has_robot_config() && !config.robot_config().empty()) {
+    RCLCPP_INFO(rclcpp::get_logger("moveit_planning_service"),
+                "RuntimeContext configured robot_config: %s",
+                config.robot_config().c_str());
   }
 
   // Determine Zenoh router address

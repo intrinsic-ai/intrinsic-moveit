@@ -6,8 +6,7 @@ Intrinsic Core is the primary supported environment. Licensed users can also dep
 
 ## Repository Structure
 
-* [`configs/`](./configs/): Reference platform service configurations (e.g. [`flowstate_ros_bridge_config.pbtxt`](./configs/flowstate_ros_bridge_config.pbtxt)).
-* [`docs/`](./docs/): Configuration and deployment guides ([`flowstate_integration.md`](./docs/flowstate_integration.md), [`flowstate_ros_bridge_configuration.md`](./docs/flowstate_ros_bridge_configuration.md)).
+* [`docs/`](./docs/): Deployment guides (e.g. [`flowstate_integration.md`](./docs/flowstate_integration.md)).
 * [`moveit_planning_service/`](./moveit_planning_service/): Consolidated ROS 2 planning service exposing motion planning through `motion_planning/get_motion_plan` and grasp planning through the `grasp_planning/plan_grasps` action, with in-process World scene synchronization and static root/base TF broadcasting.
 * [`moveit_planning_interfaces/`](./moveit_planning_interfaces/): ROS 2 action and message definitions for grasp planning (e.g. `PlanGrasps.action`, `GraspCandidate.msg`, and `RankedGrasp.msg`).
 * [`moveit_plan_motion_skill/`](./moveit_plan_motion_skill/): C++ client skill executing geometric motion planning requests against the planning service.
@@ -104,30 +103,40 @@ make format
 > * **Abseil Dependency Conflicts**: If `sdk-ros/abseil_cpp_vendor` fails to build during local compilation, verify whether system-level `libabsl*` packages are installed on the local system/container and remove them with `sudo apt remove "libabsl*"` before rebuilding.
 > * **`libxml2.so.2` Soname Transition**: `intrinsic_sdk_cmake`'s bundled LLVM toolchain expects `libxml2.so.2`; on Ubuntu 26, create a compatibility symlink if missing: `sudo ln -s /usr/lib/x86_64-linux-gnu/libxml2.so.16 /usr/lib/x86_64-linux-gnu/libxml2.so.2`.
 
-### Running Services Locally
+### Visualizing & Running Services Locally
 
-#### Option A: Intrinsic Core Connected Mode via Zenoh
+#### Standalone RViz Against the In-Cluster Pod
 
-When connecting to an active Intrinsic Core or Flowstate cluster:
+When `//:omts_solution` is running (`rs-moveit-planning-service-0` in `app-resources`), attach RViz directly over the exposed Zenoh router port (`7447`) without stopping the pod:
 
 ```bash
-# Terminal 1: Port-forward Zenoh router port (7447)
-sudo k3s kubectl port-forward -n app-intrinsic-base service/zenoh-router 7447:7447
-
-# Terminal 2: Zenoh router tunnel configuration for ROS interactions
+source install/setup.bash
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 export ROS_DOMAIN_ID=0
 export ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/127.0.0.1:7447"]'
 
-# Launch upstream flowstate_ros_bridge (streams /tf and /joint_states)
-# Note: If flowstate_ros_bridge is already running as a cluster service, ensure its configuration
-# has been updated with configs/flowstate_ros_bridge_config.pbtxt before running MoveIt.
-source install/setup.bash
-ros2 launch moveit_planning_service flowstate_ros_bridge.launch.py
+# Use omts_moveit_config (UR5e) or lab_bb_01_moveit_config (UR3e) matching the deployed cell:
+ros2 launch omts_moveit_config moveit_rviz.launch.py \
+    rviz_config:=src/intrinsic-moveit/moveit_planning_service/rviz/motion_planning_service.rviz
+```
 
-# Terminal 3: Launch MoveIt planning service (defaults to robot_config:=omts; pass robot_config:=lab_bb_01 for lab_bb_01)
+#### Option A: Running `moveit_planning_service` from Source Against Intrinsic Core
+
+When testing local C++ changes against an active Intrinsic Core deployment, delete the in-cluster `moveit_planning_service` instance first so two planning nodes do not compete on `/grasp_planning/plan_grasps` (`flowstate_ros_bridge` in `//:omts_solution` already streams `/tf` and `/joint_states` with its default configuration):
+
+```bash
+inctl service delete --address=localhost:17080 moveit_planning_service
+
 source install/setup.bash
-ros2 launch moveit_planning_service service.launch.py robot_config:=omts headless:=false start_service_status_monitor:=false
+export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+export ROS_DOMAIN_ID=0
+export ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/127.0.0.1:7447"]'
+
+# Defaults to robot_config:=omts; pass robot_config:=lab_bb_01 for lab_bb_01
+ros2 launch moveit_planning_service service.launch.py \
+    robot_config:=omts \
+    headless:=false \
+    start_service_status_monitor:=false
 ```
 
 #### Option B: Standalone / Offline Mode (Mock Hardware)
@@ -192,8 +201,7 @@ ros2 run moveit_planning_service benchmark_grasp_planning.py \
 
 * **Unified Service Architecture & Decoupled Upstream Bridge**:
   * `moveit_planning_service` handles planning engines (`move_group`, `moveit_planning_node`), in-process World collision scene synchronization (`MoveitSceneSynchronizer`), and lifecycle health monitoring (`status_monitor`).
-  * Upstream `flowstate_ros_bridge` handles general ROS 2 bridging: streaming `/tf`, `/tf_sim`, `/joint_states`, and FTS wrench from Zenoh.
-  * **Upstream Bridge Configuration Requirement**: The default `sdk-ros` bridge configuration ships generic placeholders (`robot_base_frame_id: "robot/robot/base_link"`, `robot_controller_instance: "robot_controller"`, empty `override_joint_names: []`). Left unchanged, MoveIt receives no usable joint states and cannot resolve kinematics. Any bridge instance used with `intrinsic-moveit` must therefore match [`configs/flowstate_ros_bridge_config.pbtxt`](./configs/flowstate_ros_bridge_config.pbtxt) — chiefly `robot_base_frame_id: "ur_module/base_link"`, `robot_controller_instance: "icon"`, and the six UR joint names. When launched locally via `flowstate_ros_bridge.launch.py`, these are already applied as launch argument defaults. For instances deployed in Intrinsic Core or Flowstate, see [`docs/flowstate_ros_bridge_configuration.md`](./docs/flowstate_ros_bridge_configuration.md) for the full field list and how to apply it.
+  * Upstream `flowstate_ros_bridge` (deployed by `intrinsic-omts` `//:omts_solution`) streams `/tf`, `/tf_sim`, `/joint_states`, and FTS wrench over Zenoh using its default configuration.
   * Upon startup, `moveit_planning_node` performs in-process scene verification, broadcasts static root/base transforms (`world -> root` and `ur_module/base_link -> base_link`), and verifies that collision objects and `/joint_states` are populated before unblocking planning requests.
 * **Consolidated Planning Service**:
   * The `moveit_planning_service` implements a ROS 2 node (`moveit_planning_node`) exposing the `motion_planning/get_motion_plan` service and the `grasp_planning/plan_grasps` action.
@@ -203,7 +211,7 @@ ros2 run moveit_planning_service benchmark_grasp_planning.py \
 * **Motion Planning Requirements & Geometric Planning Design**:
   * **MoveIt/MTC Dependencies**: The planning node requires `robot_description` (URDF), `robot_description_semantic` (SRDF), `robot_description_kinematics`, and `planning_pipelines` to be loaded as parameters via `service.launch.py` using `MoveItConfigsBuilder` from `<robot_config>_moveit_config` (`omts_moveit_config` or `lab_bb_01_moveit_config`).
   * **Launch Architecture & Launch Arguments**: `moveit_planning_service/launch/service.launch.py` dispatches to per-workcell launch files (`omts.launch.py` and `lab_bb_01.launch.py`, backed by `planning_service_common.py`), orchestrating `robot_state_publisher`, `move_group` (planning scene & execution action server), `ros2_control_node` with controller spawners, `moveit_planning_node`, `status_monitor`, and RViz2. Key launch arguments include:
-    * `robot_config` (default: `"omts"`, choices: `["omts", "lab_bb_01"]`): Selects the per-workcell launch file (`omts.launch.py` for the UR5e OMTS cell, or `lab_bb_01.launch.py` for the UR3e `lab_bb_01` cell). Each per-workcell launch file can also be invoked directly (`ros2 launch moveit_planning_service omts.launch.py` / `lab_bb_01.launch.py`).
+    * `robot_config` (default: `MoveItPlanningServiceConfig.robot_config` from `/etc/intrinsic/runtime_config.pb`, or `"omts"` when unset; choices: `["omts", "lab_bb_01"]`): Selects the per-workcell launch file (`omts.launch.py` for the UR5e OMTS cell, or `lab_bb_01.launch.py` for the UR3e `lab_bb_01` cell). Explicit CLI `robot_config:=...` overrides `runtime_config.pb`, and each per-workcell launch file can also be invoked directly (`ros2 launch moveit_planning_service omts.launch.py` / `lab_bb_01.launch.py`).
     * `headless` (default: `true`): Controls UI visualization. When `true`, disables RViz; setting `headless:=false` enables RViz for local visual debugging.
     * `start_service_status_monitor` (default: `true`): Controls whether the dedicated `status_monitor` node is launched to report operational `ServiceState` to the platform. Set to `false` for offline or standalone testing where reporting to the platform is not desired.
     * `use_mock_hardware` (default: `false`): When `true`, starts `ros2_control_node` with controller spawners for offline testing without platform connection.
