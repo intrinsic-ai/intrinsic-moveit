@@ -60,6 +60,7 @@ colcon build --symlink-install \
 # Launch RViz connected to the cluster Zenoh router
 source ~/ws_intrinsic_moveit/install/setup.bash
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+export ROS_DOMAIN_ID=0
 export ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/127.0.0.1:7447"]'
 
 # Default OMTS cell (UR5e) — use lab_bb_01_moveit_config for Lab BB-01 (UR3e):

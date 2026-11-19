@@ -153,6 +153,32 @@ def test_service_launch_dispatches_workcell_launch(
     assert len(planning_nodes) == 1
 
 
+@pytest.fixture(autouse=True)
+def _isolate_runtime_config_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv(
+        "INTRINSIC_RUNTIME_CONFIG",
+        str(tmp_path / "default_absent_runtime_config.pb"),
+    )
+
+
+def _add_file_with_deps(
+    pool: descriptor_pool.DescriptorPool,
+    fds_by_name: dict[str, descriptor_pb2.FileDescriptorProto],
+    filename: str,
+) -> None:
+    try:
+        pool.FindFileByName(filename)
+        return
+    except KeyError:
+        pass
+    fd = fds_by_name[filename]
+    for dep in fd.dependency:
+        _add_file_with_deps(pool, fds_by_name, dep)
+    pool.Add(fd)
+
+
 def _get_message_class(pool, descriptor):
     if hasattr(message_factory, "GetMessageClass"):
         return message_factory.GetMessageClass(descriptor)
@@ -196,10 +222,10 @@ def _write_runtime_config_pb(
     sdk_fds = descriptor_pb2.FileDescriptorSet.FromString(
         _find_intrinsic_proto_desc().read_bytes()
     )
-    for fd in sdk_fds.file:
-        if fd.name == "intrinsic/resources/proto/runtime_context.proto":
-            pool.Add(fd)
-            break
+    sdk_by_name = {fd.name: fd for fd in sdk_fds.file}
+    _add_file_with_deps(
+        pool, sdk_by_name, "intrinsic/resources/proto/runtime_context.proto"
+    )
 
     svc_fds = descriptor_pb2.FileDescriptorSet.FromString(
         (
@@ -207,8 +233,9 @@ def _write_runtime_config_pb(
             / "moveit_planning_service_protos.desc"
         ).read_bytes()
     )
+    svc_by_name = {**sdk_by_name, **{fd.name: fd for fd in svc_fds.file}}
     for fd in svc_fds.file:
-        pool.Add(fd)
+        _add_file_with_deps(pool, svc_by_name, fd.name)
 
     rc_cls = _get_message_class(
         pool,
@@ -305,6 +332,32 @@ def test_service_launch_rejects_invalid_runtime_config_robot_config(
 
     service_launch = _load_launch_module("service.launch.py")
     with pytest.raises(ValueError, match="robot_config"):
+        service_launch.generate_launch_description()
+
+
+def test_service_launch_rejects_corrupt_runtime_config_pb(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service_launch = _load_launch_module("service.launch.py")
+
+    # 1. Corrupt outer RuntimeContext wire bytes (invalid tag 0)
+    corrupt_outer = tmp_path / "corrupt_outer.pb"
+    corrupt_outer.write_bytes(b"\x00\xff\xff")
+    monkeypatch.setenv("INTRINSIC_RUNTIME_CONFIG", str(corrupt_outer))
+    with pytest.raises(ValueError, match="RuntimeContext"):
+        service_launch.generate_launch_description()
+
+    # 2. Valid outer RuntimeContext wrapping corrupt MoveItPlanningServiceConfig
+    any_msg = any_pb2.Any(
+        type_url="type.googleapis.com/intrinsic.MoveItPlanningServiceConfig",
+        value=b"\x00\xff\xff",
+    )
+    any_bytes = any_msg.SerializeToString()
+    # Field 6 (config), wire type 2 (length-delimited) -> tag 0x32
+    corrupt_inner = tmp_path / "corrupt_inner.pb"
+    corrupt_inner.write_bytes(b"\x32" + bytes([len(any_bytes)]) + any_bytes)
+    monkeypatch.setenv("INTRINSIC_RUNTIME_CONFIG", str(corrupt_inner))
+    with pytest.raises(ValueError, match="MoveItPlanningServiceConfig"):
         service_launch.generate_launch_description()
 
 

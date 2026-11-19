@@ -117,7 +117,7 @@ export ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/127.0.0.1:74
 
 # Use omts_moveit_config (UR5e) or lab_bb_01_moveit_config (UR3e) matching the deployed cell:
 ros2 launch omts_moveit_config moveit_rviz.launch.py \
-    rviz_config:="$(ros2 pkg prefix moveit_planning_service)/share/moveit_planning_service/rviz/motion_planning_service.rviz"
+    rviz_config:=src/intrinsic-moveit/moveit_planning_service/rviz/motion_planning_service.rviz
 ```
 
 #### Option A: Running `moveit_planning_service` from Source Against Intrinsic Core

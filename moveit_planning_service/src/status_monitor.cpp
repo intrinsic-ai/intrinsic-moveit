@@ -226,8 +226,8 @@ SubsystemHealthReport MoveItStatusClient::check_health() {
           "/joint_states topic has not received any messages. "
           "Ensure flowstate_ros_bridge is running.";
       report.instructions =
-          "Launch upstream bridge via 'ros2 launch moveit_planning_service "
-          "flowstate_ros_bridge.launch.py'.";
+          "Verify flowstate_ros_bridge is running and connected to the Zenoh "
+          "router.";
       return report;
     }
 
@@ -253,8 +253,8 @@ SubsystemHealthReport MoveItStatusClient::check_health() {
             "Expected joint '%s' was not found in /joint_states stream.",
             expected_joint);
         report.instructions =
-            "Check robot description model and "
-            "override_joint_names in flowstate_ros_bridge.";
+            "Check that the active robot_config matches the deployed robot arm "
+            "and /joint_states stream.";
         return report;
       }
     }
