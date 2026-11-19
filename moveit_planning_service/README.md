@@ -42,7 +42,7 @@ colcon test-result --verbose
 
 ## Testing ROS 2 Planning Endpoints
 
-After launching the service (see [Building and Running Services Locally](../README.md#3-launching-the-moveit-planning-service-locally)), open a new terminal, source the workspace, and call the service endpoints:
+After launching the service (see [Development Source Build](../README.md#3-running-moveit_planning_service-from-source)), open a new terminal, source the workspace, and call the service endpoints:
 
 ```bash
 source install/setup.bash

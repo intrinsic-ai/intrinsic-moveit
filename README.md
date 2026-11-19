@@ -11,10 +11,7 @@ Intrinsic Core is the primary supported deployment environment, supporting the `
 
 ## Repository Structure
 
-* [`configs/`](./configs/): Reference platform service configurations (e.g. [`flowstate_ros_bridge_config.pbtxt`](./configs/flowstate_ros_bridge_config.pbtxt)).
-* [`docs/`](./docs/): Configuration and architecture guides:
-  * [`flowstate_integration.md`](./docs/flowstate_integration.md): Instructions on running this integration with Flowstate.
-  * [`flowstate_ros_bridge_configuration.md`](./docs/flowstate_ros_bridge_configuration.md): Required `flowstate_ros_bridge` service configuration values, and how to apply them on Intrinsic Core and Flowstate.
+* [`docs/`](./docs/): Deployment guides (e.g. [`flowstate_integration.md`](./docs/flowstate_integration.md)).
 * [`moveit_planning_service/`](./moveit_planning_service/): Consolidated ROS 2 planning service exposing motion planning through the `motion_planning/get_motion_plan` service and grasp planning through the `grasp_planning/plan_grasps` action, with in-process World scene synchronization and static root/base TF broadcasting.
 * [`moveit_planning_interfaces/`](./moveit_planning_interfaces/): ROS 2 action and message definitions for grasp planning (e.g. `PlanGrasps.action`, `GraspCandidate.msg`, and `RankedGrasp.msg`).
 * [`moveit_plan_motion_skill/`](./moveit_plan_motion_skill/): C++ client skill executing motion planning requests against the planning service.
@@ -26,13 +23,61 @@ Intrinsic Core is the primary supported deployment environment, supporting the `
 * [`Dockerfile.service`](./Dockerfile.service): Multi-stage Dockerfile building and packaging `moveit_planning_service` into runtime container images.
 * [`Dockerfile.skill`](./Dockerfile.skill): Dockerfile building and packaging skills (`moveit_plan_motion_skill` and `moveit_plan_grasp_skill`) into container images.
 
-## Building and Running Services Locally
+## Deployment & RViz Visualization on Intrinsic Core
 
-You can build and run the services locally in a ROS 2 workspace (e.g., using Ubuntu 26 / Distrobox) for development and testing.
+When deployed with [Intrinsic Open Machine Tending Solution (`intrinsic-omts`)](https://github.com/intrinsic-ai/intrinsic-omts) (`//:omts_solution`), both prebuilt release bundles (`moveit_planning_service.bundle.tar` and `moveit_plan_grasp_skill.bundle.tar`) are downloaded and started automatically in the cluster (`rs-moveit-planning-service-0` in `app-resources`):
+
+* `--//:setup=omts` (default): runs `moveit_planning_service` with `robot_config: "omts"` (UR5e).
+* `--//:setup=lab_bb_01` (`--config=lab_bb_01`): runs `moveit_planning_service` with `robot_config: "lab_bb_01"` (UR3e).
+
+Verify that the service pod is running with:
+
+```bash
+kubectl get pods -n app-resources
+```
+
+### Visualizing the Planning Scene in RViz
+
+You can attach a standalone local RViz window directly to the running in-cluster `moveit_planning_service` pod over Zenoh (`127.0.0.1:7447`) without stopping the pod or compiling the C++ SDK/service packages:
+
+```bash
+# One-time lightweight setup for robot meshes and MoveIt RViz plugins
+mkdir -p ~/ws_intrinsic_moveit/src && cd ~/ws_intrinsic_moveit/src
+git clone https://github.com/intrinsic-ai/intrinsic-moveit.git
+source /opt/ros/lyrical/setup.bash
+cd ~/ws_intrinsic_moveit
+sudo apt update && sudo apt install -y \
+  ros-lyrical-rmw-zenoh-cpp \
+  ros-lyrical-moveit-ros-visualization \
+  ros-lyrical-moveit-task-constructor-visualization
+rosdep install --from-paths \
+  src/intrinsic-moveit/robot_hardware_descriptions \
+  src/intrinsic-moveit/third_party \
+  --ignore-src -r -y
+colcon build --symlink-install \
+  --packages-up-to omts_moveit_config lab_bb_01_moveit_config
+
+# Launch RViz connected to the cluster Zenoh router
+source ~/ws_intrinsic_moveit/install/setup.bash
+export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+export ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/127.0.0.1:7447"]'
+
+# Default OMTS cell (UR5e) — use lab_bb_01_moveit_config for Lab BB-01 (UR3e):
+ros2 launch omts_moveit_config moveit_rviz.launch.py \
+  rviz_config:=$HOME/ws_intrinsic_moveit/src/intrinsic-moveit/moveit_planning_service/rviz/motion_planning_service.rviz
+```
+
+![](../media/moveit-scene-sync.gif)
+
+---
+
+## Development Source Build
+
+When modifying `moveit_planning_service` or the skills, build and run the workspace from source in a ROS 2 environment (e.g. Ubuntu 26 / Distrobox) or package new `.bundle.tar` release artifacts via `Makefile`.
 
 ### 1. Set Up Workspace & Import Dependencies
 
-Clone dependencies using the appropriate `.repos` file for your ROS 2 distribution:
+Clone dependencies using the `.repos` file for your ROS 2 distribution:
 
 ```bash
 # Create workspace and clone into the source directory
@@ -60,23 +105,36 @@ cd ~/ws_intrinsic_moveit
 
 # On Lyrical, you might encounter build failures due to mismatch in system library versions, refer to the
 # Troubleshooting section for more details.
-colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release --symlink-install --packages-up-to moveit_planning_service moveit_plan_motion_skill moveit_plan_grasp_skill
+colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release --symlink-install \
+  --packages-up-to moveit_planning_service moveit_plan_motion_skill moveit_plan_grasp_skill
 ```
 
-### 3. Launching the MoveIt Planning Service Locally
-
-#### Option A: Intrinsic Core Connected Mode via Zenoh
-
-> [!NOTE]
-> **Bridge Requirement**: This integration requires a running `flowstate_ros_bridge` configured for the workcell (to stream `/tf` and `/joint_states`). The bridge should already be deployed in the cluster — in which case its configuration must first be updated, see [`docs/flowstate_ros_bridge_configuration.md`](./docs/flowstate_ros_bridge_configuration.md).
+To build release `.bundle.tar` artifacts into `./images/`:
 
 ```bash
-# Zenoh router tunnel, these are needed for all ROS interactions with Intrinsic Core
+cd ~/ws_intrinsic_moveit/src/intrinsic-moveit
+cp .env.template .env  # set SDK_VERSION and ROS_DISTRO=lyrical
+make moveit_planning_service.bundle.tar moveit_plan_grasp_skill.bundle.tar
+```
+
+### 3. Running `moveit_planning_service` from Source
+
+#### Option A: Connected to Intrinsic Core via Zenoh
+
+If `//:omts_solution` is already running an in-cluster `moveit_planning_service` instance, delete that service instance first so two planning nodes do not compete on `/grasp_planning/plan_grasps` (`flowstate_ros_bridge` in `//:omts_solution` stays running and already streams `/tf` and `/joint_states` with its default configuration):
+
+```bash
+inctl service delete --address=localhost:17080 moveit_planning_service
+```
+
+Then launch your local build against the cluster Zenoh router (`127.0.0.1:7447`):
+
+```bash
 export RMW_IMPLEMENTATION=rmw_zenoh_cpp
 export ROS_DOMAIN_ID=0
 export ZENOH_CONFIG_OVERRIDE='mode="client";connect/endpoints=["tcp/127.0.0.1:7447"]'
 
-# Launch unified planning service, with visualization using Rviz (defaults to robot_config:=omts;
+# Launch unified planning service with RViz (defaults to robot_config:=omts;
 # pass robot_config:=lab_bb_01 for the UR3e lab_bb_01 workcell)
 source install/setup.bash
 ros2 launch moveit_planning_service service.launch.py \
@@ -89,10 +147,6 @@ ros2 launch moveit_planning_service service.launch.py \
 #     headless:=true \
 #     start_service_status_monitor:=false
 ```
-
-Once launched with rviz, the MoveIt planning scene and robot state should be in sync with Intrinsic Core.
-
-![](../media/moveit-scene-sync.gif)
 
 #### Option B: Standalone / Offline Mode (Mock Hardware)
 
