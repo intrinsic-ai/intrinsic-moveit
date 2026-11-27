@@ -16,9 +16,14 @@
 
 import importlib.util
 import math
+import os
 from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
+from google.protobuf import any_pb2
+from google.protobuf import descriptor_pb2
+from google.protobuf import descriptor_pool
+from google.protobuf import message_factory
 from launch import LaunchContext
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -146,6 +151,214 @@ def test_service_launch_dispatches_workcell_launch(
         if isinstance(e, Node) and e.node_executable == "moveit_planning_node"
     ]
     assert len(planning_nodes) == 1
+
+
+@pytest.fixture(autouse=True)
+def _isolate_runtime_config_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv(
+        "INTRINSIC_RUNTIME_CONFIG",
+        str(tmp_path / "default_absent_runtime_config.pb"),
+    )
+
+
+def _add_file_with_deps(
+    pool: descriptor_pool.DescriptorPool,
+    fds_by_name: dict[str, descriptor_pb2.FileDescriptorProto],
+    filename: str,
+) -> None:
+    try:
+        pool.FindFileByName(filename)
+        return
+    except KeyError:
+        pass
+    fd = fds_by_name[filename]
+    for dep in fd.dependency:
+        _add_file_with_deps(pool, fds_by_name, dep)
+    pool.Add(fd)
+
+
+def _get_message_class(pool, descriptor):
+    if hasattr(message_factory, "GetMessageClass"):
+        return message_factory.GetMessageClass(descriptor)
+    return message_factory.MessageFactory(pool).GetPrototype(descriptor)
+
+
+def _find_intrinsic_proto_desc() -> Path:
+    prefixes = [
+        p
+        for env_var in ("CMAKE_PREFIX_PATH", "AMENT_PREFIX_PATH")
+        for p in os.environ.get(env_var, "").split(os.pathsep)
+        if p
+    ]
+    prefixes.append("/opt/intrinsic/intrinsic_sdk_cmake/install")
+    for prefix in prefixes:
+        candidate = (
+            Path(prefix) / "share" / "intrinsic_sdk_cmake" / "intrinsic_proto.desc"
+        )
+        if candidate.is_file():
+            return candidate
+    # Check sibling install dir in colcon non-merged layout
+    svc_share = Path(get_package_share_directory("moveit_planning_service"))
+    sibling = (
+        svc_share.parents[2]
+        / "intrinsic_sdk_cmake"
+        / "share"
+        / "intrinsic_sdk_cmake"
+        / "intrinsic_proto.desc"
+    )
+    if sibling.is_file():
+        return sibling
+    raise FileNotFoundError("Could not locate intrinsic_proto.desc")
+
+
+def _write_runtime_config_pb(
+    path: Path, robot_config: str | None = None
+) -> Path:
+    pool = descriptor_pool.DescriptorPool()
+    pool.AddSerializedFile(any_pb2.DESCRIPTOR.serialized_pb)
+
+    sdk_fds = descriptor_pb2.FileDescriptorSet.FromString(
+        _find_intrinsic_proto_desc().read_bytes()
+    )
+    sdk_by_name = {fd.name: fd for fd in sdk_fds.file}
+    _add_file_with_deps(
+        pool, sdk_by_name, "intrinsic/resources/proto/runtime_context.proto"
+    )
+
+    svc_fds = descriptor_pb2.FileDescriptorSet.FromString(
+        (
+            Path(get_package_share_directory("moveit_planning_service"))
+            / "moveit_planning_service_protos.desc"
+        ).read_bytes()
+    )
+    svc_by_name = {**sdk_by_name, **{fd.name: fd for fd in svc_fds.file}}
+    for fd in svc_fds.file:
+        _add_file_with_deps(pool, svc_by_name, fd.name)
+
+    rc_cls = _get_message_class(
+        pool,
+        pool.FindMessageTypeByName("intrinsic_proto.config.RuntimeContext"),
+    )
+    cfg_cls = _get_message_class(
+        pool,
+        pool.FindMessageTypeByName("intrinsic.MoveItPlanningServiceConfig"),
+    )
+
+    cfg = cfg_cls()
+    if robot_config is not None:
+        cfg.robot_config = robot_config
+
+    rc = rc_cls()
+    rc.port = 8080
+    rc.name = "moveit_planning_service"
+    rc.config.type_url = (
+        "type.googleapis.com/intrinsic.MoveItPlanningServiceConfig"
+    )
+    rc.config.value = cfg.SerializeToString()
+    path.write_bytes(rc.SerializeToString())
+    return path
+
+
+@pytest.mark.parametrize(
+    ("runtime_robot_config", "launch_args", "expected_pkg", "other_pkg"),
+    [
+        (None, {}, "omts_moveit_config", "lab_bb_01_moveit_config"),
+        ("omts", {}, "omts_moveit_config", "lab_bb_01_moveit_config"),
+        ("lab_bb_01", {}, "lab_bb_01_moveit_config", "omts_moveit_config"),
+        (
+            "lab_bb_01",
+            {"robot_config": "omts"},
+            "omts_moveit_config",
+            "lab_bb_01_moveit_config",
+        ),
+    ],
+)
+def test_service_launch_reads_runtime_config_pb(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_robot_config: str | None,
+    launch_args: dict[str, str],
+    expected_pkg: str,
+    other_pkg: str,
+):
+    pb_path = _write_runtime_config_pb(
+        tmp_path / "runtime_config.pb", robot_config=runtime_robot_config
+    )
+    monkeypatch.setenv("INTRINSIC_RUNTIME_CONFIG", str(pb_path))
+
+    service_launch = _load_launch_module("service.launch.py")
+    ctx = LaunchContext()
+    for k, v in launch_args.items():
+        ctx.launch_configurations[k] = v
+
+    entities = _walk_entities(
+        ctx, service_launch.generate_launch_description().entities
+    )
+    assert len(_moveit_include_locations(ctx, entities, expected_pkg)) == 2
+    assert len(_moveit_include_locations(ctx, entities, other_pkg)) == 0
+
+
+def test_service_launch_falls_back_when_runtime_config_missing_or_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service_launch = _load_launch_module("service.launch.py")
+    for pb_path in (
+        tmp_path / "does_not_exist.pb",
+        tmp_path / "empty.pb",
+    ):
+        if pb_path.name == "empty.pb":
+            pb_path.write_bytes(b"")
+        monkeypatch.setenv("INTRINSIC_RUNTIME_CONFIG", str(pb_path))
+        ctx = LaunchContext()
+        entities = _walk_entities(
+            ctx, service_launch.generate_launch_description().entities
+        )
+        assert (
+            len(_moveit_include_locations(ctx, entities, "omts_moveit_config"))
+            == 2
+        )
+
+
+@pytest.mark.parametrize("bad_cfg", ["lab-bb-01", "LAB_BB_01", "invalid_cell"])
+def test_service_launch_rejects_invalid_runtime_config_robot_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad_cfg: str
+):
+    pb_path = _write_runtime_config_pb(
+        tmp_path / "runtime_config.pb", robot_config=bad_cfg
+    )
+    monkeypatch.setenv("INTRINSIC_RUNTIME_CONFIG", str(pb_path))
+
+    service_launch = _load_launch_module("service.launch.py")
+    with pytest.raises(ValueError, match="robot_config"):
+        service_launch.generate_launch_description()
+
+
+def test_service_launch_rejects_corrupt_runtime_config_pb(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    service_launch = _load_launch_module("service.launch.py")
+
+    # 1. Corrupt outer RuntimeContext wire bytes (invalid tag 0)
+    corrupt_outer = tmp_path / "corrupt_outer.pb"
+    corrupt_outer.write_bytes(b"\x00\xff\xff")
+    monkeypatch.setenv("INTRINSIC_RUNTIME_CONFIG", str(corrupt_outer))
+    with pytest.raises(ValueError, match="RuntimeContext"):
+        service_launch.generate_launch_description()
+
+    # 2. Valid outer RuntimeContext wrapping corrupt MoveItPlanningServiceConfig
+    any_msg = any_pb2.Any(
+        type_url="type.googleapis.com/intrinsic.MoveItPlanningServiceConfig",
+        value=b"\x00\xff\xff",
+    )
+    any_bytes = any_msg.SerializeToString()
+    # Field 6 (config), wire type 2 (length-delimited) -> tag 0x32
+    corrupt_inner = tmp_path / "corrupt_inner.pb"
+    corrupt_inner.write_bytes(b"\x32" + bytes([len(any_bytes)]) + any_bytes)
+    monkeypatch.setenv("INTRINSIC_RUNTIME_CONFIG", str(corrupt_inner))
+    with pytest.raises(ValueError, match="MoveItPlanningServiceConfig"):
+        service_launch.generate_launch_description()
 
 
 @pytest.mark.parametrize(

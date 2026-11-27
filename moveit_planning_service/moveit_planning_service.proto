@@ -77,4 +77,7 @@ message MoveItPlanningServiceConfig {
   // Periodic interval in seconds for background polling of World
   // scene objects. Defaults to 2.0 s (0.0 to disable).
   optional double world_sync_interval_sec = 20;
+  // Workcell robot configuration to launch (e.g. "omts" or "lab_bb_01").
+  // Defaults to "omts" when unset.
+  optional string robot_config = 21;
 }
