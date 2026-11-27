@@ -254,7 +254,7 @@ SubsystemHealthReport MoveItStatusClient::check_health() {
             expected_joint);
         report.instructions =
             "Check that the active robot_config matches the deployed robot arm "
-            "and /joint_states stream.";
+            "and '/joint_states' topic.";
         return report;
       }
     }
